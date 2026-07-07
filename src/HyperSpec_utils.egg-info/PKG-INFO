@@ -1,0 +1,10 @@
+Metadata-Version: 2.1
+Name: HyperSpec-utils
+Version: 1.0
+Summary: HyperSpec's utils functions written in Cython
+Home-page: http://varys.ucsd.edu/
+Author: Weihong Xu, Jaeyoung Kang, Wout Bittremieux, Niema Moshiri, and Tajana Rosing
+Author-email: wexu@ucsd.edu
+License: BSD
+Requires-Dist: numpy
+Requires-Dist: cython
