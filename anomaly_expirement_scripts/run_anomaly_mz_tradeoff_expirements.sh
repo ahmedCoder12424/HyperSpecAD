@@ -55,7 +55,7 @@ TIMING_RESULT_FILE="anomaly_validation_results/proteomics_timing_3.csv"
 # RUN_TAG_run3="Gr_HC_Si"
 # -----------------------
 
-mzs=(1.0) #10.0 80.0 100.0 1000.0
+mzs=(1.0 10.0 80.0 100.0 1000.0)
 
 for run in run4; do
     for mz in "${mzs[@]}"; do     

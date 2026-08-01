@@ -13,7 +13,7 @@ This step preprocesses the non LC-MS data into mgf-like files which can be input
 2.  create_mgf_from_tofs_sims.py
     This parses and processes the battery tof-sims files to create mgf files 
 
-2.  Run create_anomaly_file.py to create a directory from which anomaly files are created a various percentages. Point directory /hdd/data/ to save space.
+2.  Run create_anomaly_files.py to create a directory from which anomaly files are created a various percentages. Point directory /hdd/data/ to save space.
 You can adjust the range of percentages. Change the input and outputs accordingly. 
 
 
@@ -29,7 +29,19 @@ use scripts in anomaly_dataset_creation_scripts
     Set the INPUT Path to the location of the result of the previous step. Set the output accordingly and place it in hdd/data/
     This will create train and test splits of the dataset where the non-anomolous data is split evenly so no new non anomaly clusters 
     pop up in the train which is mixed with the anomaly spectras. The anomaly spectras are also outputted in a separate files
-    
+
+Optional: 
+To check how separated really the anomalies are from the normal spectras, input the cluster result 
+from ./anomaly_dataset_creation_scripts/cluster_anomalies.sh into this script which will output an analysis of separation.
+
+Run anomaly_sep_anly_scripts/separation_analysis.py
+    ex:
+    python3 compute_cluster_separation.py \
+    --cluster-results data/proteomics/cluster_results_main.csv \
+    --metadata data/proteomics/1468_dataset_meta.csv \
+    --spectra-hvs data/proteomics/spectra_hvs.npy \
+    --outdir results/proteomics \
+    --prefix proteomics_
 
 Anomaly Expirements 
 
