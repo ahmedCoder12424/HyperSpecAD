@@ -28,9 +28,9 @@ import time
 import atexit
 
 import os, sys
-sys.path.append(os.path.join(os.path.dirname(__file__), "../HDLouvain-2"))
 
-import louvain_py
+
+
 
 ANOMALY_EPS_PERCENTILE = 50
 
@@ -630,10 +630,6 @@ def load_csv_as_2d_list(filename):
     return matrix
 
 
-def perform_louvain(pw_dist):
-    cluster_func_labels = np.array(louvain_py.run_louvain(pw_dist, k=15))
-    return cluster_func_labels 
-
 def cluster_bucket (
     bucket_slice: tuple, 
     data_dict: dict, 
@@ -642,10 +638,7 @@ def cluster_bucket (
     output_type: str='numpy'
 ):
 
-   # matrix =  load_csv_as_2d_list("97_bucket.csv")
-   #print("TEST 0", len( louvain_py.run_louvain(matrix, k=15)))
 
-  # print(type(bucket_slice[1]), type(bucket_slice))
     if bucket_slice[1]-bucket_slice[0]==0:
         return [np.array([-1]), np.array([True])]
     else:
@@ -657,73 +650,9 @@ def cluster_bucket (
         pw_dist = fast_nb_cosine_dist_mask(bucket_hv, bucket_prec_mz, config.precursor_tol[0], output_type)
         export_distance_metric(pw_dist, "1302_distance_metrics.csv")
 
+        cluster_func.fit(pw_dist) #
+        cluster_func_labels = cluster_func.labels_
 
-    # print("DISTANCE METRIC FORMAT", type(pw_dist),pw_dist)
-        
-       # sys.exit(0)
-       # print("SIZE OF DIST METRIC", pw_dist.shape)
-        if (cluster_func == "louvain"):
-            data = pw_dist
-            min_val = float(cp.asnumpy(cp.min(data)))
-            max_val = float(cp.asnumpy(cp.max(data)))
-            normalized = (data - min_val) / (max_val - min_val)
-           # ormalized = cp.round(normalized, 6)
-            normalized_cpu = cp.asnumpy(normalized)
-           #export_distance_metric(normalized_cpu, "97_bucket.csv")
-          # print("SIZE OF INPUT TO LOUVAIN", len(normalized_cpu),  normalized_cpu.shape)
-            normalized_cpu = normalized_cpu.astype(np.float64)
-          # assert not np.any(np.isnan(normalized_cpu)), "NaNs found!"
-           # assert not np.any(np.isinf(normalized_cpu)), "Infs found!"
-           # if (pw_dist.shape[0] == 97):
-               # matrix =  load_csv_as_2d_list("97_bucket.csv")
-           # print("SAME ", matrix == normalized_cpu.tolist())
-            # Use this:
-                #matrix_np = np.array(matrix)
-                #is_same = np.allclose(matrix_np, normalized_cpu)
-              # print(f"Matrices are same: {is_same}")
-               # print(f"Matrix shapes - CSV: {matrix_np.shape}, Calculated: {normalized_cpu.shape}")
-            # cluster_func_labels = np.array(louvain_py.run_louvain(normalized_cpu.tolist(), k=15))
-            cluster_func_labels = np.array(louvain_py.run_louvain(pw_dist, k=15))
-           #print(len(cluster_func_labels), cluster_func_labels)
-
-        else:
-            cluster_func.fit(pw_dist) #
-            cluster_func_labels = cluster_func.labels_
-
-       
-    #    matrix =  load_csv_as_2d_list("97_bucket.csv")
-     #   print("TEST", len( louvain_py.run_louvain(matrix, k=15)))
-
-        # cluster_labels_refined = refine_cluster(
-        #     bucket_cluster_label = cluster_func.labels_, 
-        #     bucket_precursor_mzs = bucket_prec_mz,
-        #     bucket_rts = bucket_rt_time,
-        #     precursor_tol_mass = config.precursor_tol[0], 
-        #     precursor_tol_mode = config.precursor_tol[1], 
-        #     rt_tol = config.rt_tol)
-        
-        # representative_mask = get_cluster_representative(
-        #     cluster_labels=cluster_labels_refined, pw_dist=pw_dist) 
-        
-#recluster using kmeans
- 
-        # labels=cluster_func.labels_
-        # n_cluster = len(set(labels)) - (1 if -1 in labels else 0)
-
-    
-
-        
-        # if n_cluster>0 and n_cluster<100:
-
-        #     recluster_func=cuml.KMeans(n_clusters=n_cluster,max_iter=100,output_type='numpy')
-        #     recluster_func.fit(pw_dist) #
-        # else:
-        #     recluster_func=cluster_func 
-
-
-       # print("FORMAT OF CLUSTER LABELS", type(cluster_func.labels_), cluster_func.labels_)
-       
-        
         cluster_labels_refined = refine_cluster(
             bucket_cluster_label = cluster_func_labels, 
             bucket_precursor_mzs = bucket_prec_mz,
@@ -2145,17 +2074,6 @@ def cluster_spectra(
     # Save data to shared memory
     start = time.time()
    
-#   m/atrix = load_csv_as_2d_list("97_bucket.csv")
- #   print(len(matrix), matrix)
-    #rint(matrix)
-    # Run the Louvain algorithm using the in-memory 2D list
-  #  result = louvain_py.run_louvain(matrix, k=15)
-
-   # print(len(result), result)
-    #sys.exit(0)
-
-   #print(spectra_by_charge_df.precursor_mz)
-   # print(spectra_by_charge_df.retention_time)
     data_dict = {
         'hv': encoded_spectra_hv, 
         'prec_mz': np.vstack(spectra_by_charge_df.precursor_mz).astype(np.float32),
