@@ -1,127 +1,82 @@
-[![License bsd-3-clause](https://badgen.net/badge/license/BSD-3/red)](https://github.com/wh-xu/Hyper-Spec/blob/main/LICENSE)
-[![JPR](https://img.shields.io/badge/JPR-2023-informational)](https://pubs.acs.org/doi/full/10.1021/acs.jproteome.2c00612)
 
-HyperSpec: Ultra-fast Mass Spectra Clustering in Hyperdimensional Space
-=======================================================
-
-<p align="center">
-    <img src="./img/logo.png" width="400">
-</p>
+Steps to Run Anomaly Detection Expirments
 
 
-_HyperSpec_ is a Python library that supports extremely fast spectra clustering. _HyperSpec_ adopts the brain-inspired hyperdimensional (HD) computing to project the spectra data into binary hyperdimensional space to obtain better clustering quality and faster clustering speed. _HyperSpec_ shortens the runtime on the draft human proteome dataset with 25 million spectra from a few hours to <15 minutes. The software is available as open-source under the BSD license.
+MS preprocessing 
+
+use scripts in anomaly_ms_preprocessing_scripts
+
+This step preprocesses the non LC-MS data into mgf-like files which can be inputted into Hyper-Spec pipeline
+
+1.  create_mgf_spectras_from_single_spectrum.py
+    this script creates mgf files from the pigments data which is contained in txt files with two columns mz and intensity representing one continous spectrum. Each pigment has its own files. The script samples the spectrum to create multiple spectras to make an mgf style file. 
+2.  create_mgf_from_tofs_sims.py
+    This parses and processes the battery tof-sims files to create mgf files 
+
+2.  Run create_anomaly_files.py to create a directory from which anomaly files are created a various percentages. Point directory /hdd/data/ to save space.
+You can adjust the range of percentages. Change the input and outputs accordingly. 
 
 
-System Requirements
-------------------------------------------------------
+Dataset Creation
 
-_HyperSpec_ requires `Python 3.8+` with `CUDA` environment. A GPU should be installed properly. _HyperSpec_ has been tested on two types of NVIDIA GPUs on a Linux platform, including GTX 1080Ti and GTX 3090. 
+use scripts in anomaly_dataset_creation_scripts
 
-- Clustering for PXD000561 dataset requires GTX 3090 with larger memory
-- Clustering for other dataset with smaller scale requires GTX 1080Ti
+1. Run ./anomaly_dataset_creation_scripts/cluster_anomalies.sh 
+    edit the paths to point to the correct normal non-anomolous dataset directory and correct anomaly dataset directory
+    set output path in /hdd/data/ to save space 
+    This preprocesses and provides initial clusterings of the dataset at various anomaly percentages
+2. Run python create_inorganic_datasets_var_anomaly_size.py 
+    Set the INPUT Path to the location of the result of the previous step. Set the output accordingly and place it in hdd/data/
+    This will create train and test splits of the dataset where the non-anomolous data is split evenly so no new non anomaly clusters 
+    pop up in the train which is mixed with the anomaly spectras. The anomaly spectras are also outputted in a separate files
 
-Other NVIDIA GPUs should support but need further test. We recommend using high-performance SSD as the storage device for the best performance.
+Optional: 
+To check how separated really the anomalies are from the normal spectras, input the cluster result 
+from ./anomaly_dataset_creation_scripts/cluster_anomalies.sh into this script which will output an analysis of separation.
 
-Installation
-------------------------------------------------------
+Run anomaly_sep_anly_scripts/separation_analysis.py
+    ex:
+    python3 compute_cluster_separation.py \
+    --cluster-results data/proteomics/cluster_results_main.csv \
+    --metadata data/proteomics/1468_dataset_meta.csv \
+    --spectra-hvs data/proteomics/spectra_hvs.npy \
+    --outdir results/proteomics \
+    --prefix proteomics_
 
-Install via Docker
-*********************
+Anomaly Expirements 
 
-We recommend installing _HyperSpec_ via docker using the following command:
+use scripts in anomaly_expirement_scripts
 
-    docker build --no-cache -f ./docker/Dockerfile -t hyper_spec .
-    docker run --gpus all -v /ms-dataset/:/dataset/ -it hyper_spec /bin/bash
+1. ./anomaly_expirement_scripts/run_anomaly_detection_expirements_param.sh to run expirements for the datasets created in the previous step. Change the paths to point to the right raw anomaly and non anomaly dataset files, the right directory for the processed files. Feel free to add more run directories to run more expirements. Set the accuracy and output timing graphs accordingly 
+    knobs you can tune 
+    - you can tune the bucket width by changing mz-interval
+    - you can tune the threshold percentile by changing anomaly_eps_percentile
 
-Install from Source
-*********************
+2. ./anomaly_expirement_scripts/sweep_anomaly_mz_tradeoff_expirements.sh this script sweeps differnt m/z intervals can be used later to generate a tradeoff graph
 
-    git https://github.com/wh-xu/Hyper-Spec.git
-    sh install.sh
+Baselines
 
-Usage and Example
-------------------------------------------------------
-
-    usage: python src/main.py [-h] [--cpu_core_preprocess CPU_CORE_PREPROCESS] [--cpu_core_cluster CPU_CORE_CLUSTER]
-                [--batch_size BATCH_SIZE] [--use_gpu_cluster] [--min_peaks MIN_PEAKS]
-                [--mz_interval MZ_INTERVAL] [--min_mz_range MIN_MZ_RANGE] [--min_mz MIN_MZ] [--max_mz MAX_MZ] 
-                [--remove_precursor_tol REMOVE_PRECURSOR_TOL] [--min_intensity MIN_INTENSITY]
-                [--max_peaks_used MAX_PEAKS_USED] [--scaling {off,root,log,rank}] [--hd_dim HD_DIM] [--hd_Q HD_Q] [--hd_id_flip_factor HD_ID_FLIP_FACTOR]
-                [--cluster_charges [CLUSTER_CHARGES ...]] 
-                [--precursor_tol PRECURSOR_TOL PRECURSOR_TOL] [--rt_tol RT_TOL] [--fragment_tol FRAGMENT_TOL] [--eps EPS]
-                [--cluster_alg {dbscan,hc_single,hc_complete,hc_average}]
-                [--refine REFINE]
-                [--checkpoint CHECKPOINT] [--representative_mgf]
-                input_filepath output_filename
-
-    Positional arguments:
-    input_filepath          The path containing the `MGF` files for raw spectra data
-    output_filename         Output CSV file that stores the clustering results.
-
-    Optional arguments:
-    -h, --help                  Show the help messages
-    --cpu_core_preprocess       The number of CPU cores used for preprocessing. (default: 6)
-    --cpu_core_cluster          The number of CPU cores used for clustering. 
-                                Only enable when `use_gpu_cluster` is True. (default: 6)
-    --batch_size                The batch size for HD encoding on GPU. (default: 5000)
-    --use_gpu_cluster           Flag that determines whether to use DBSCAN 
-                                on GPU. (default: True)
-    --hd_dim                    The HD dimension. (default: 2048)
-    --hd_Q                      The HD quantization level. (default: 16)
-    --cluster_charges           The charges to be clustered. (default: 2 3)
-    --cluster_alg               Select DBSCAN or hierarchical clustering algorithm (including dbscan, hc_single, hc_complete, and hc_average) for spectra (default: hc_complete) 
-    --eps                       The threshold value `eps` for DBSCAN clustering. 
-                                (default: 0.4)
-    --refine                    Flag to determine whether refine the clustering results.
-                                (default: True)
-    --representative_mgf        Flag to determine whether exporting the clustering representatives.
-                                (default: False)
-    --checkpoint                The checkpoint filename to save the encoded HVs of spectra (default: None)
+1. run ./baselines_param.sh to run for the baselines, change the input and output paths accordingly
 
 
-_HyperSpec_ supports running using the command line and takes `MGF` peak files as input and exports the clustering result as a CSV file with each MS/MS spectrum and its cluster label on a single line. Here we provide two examples of running _HyperSpec_:
+Generating Graphs and Figures 
 
-### Example 1
+use files in anomaly_result_scripts
 
-    python src/main.py ~/dataset/ ./output.csv  --cpu_core_preprocess=4 --cluster_alg dbscan --use_gpu_cluster --cluster_charges 2 3 --eps=0.2 --refine
+1. generate_plots.py - set the input paths to timing and accuracy results of hyper-spec and the baseline results and set a directory for the graphs.
+ ex: 
+    python3 generate_plots_with_tables.py \
+    --baselines=../baseline_results/Gr_HC_Si_trunc_organic_anom_baseline_summary.txt \
+    --timing=../anomaly_validation_results/best_acc_organic_timing.txt \
+    --accuracy=../anomaly_validation_results/best_acc_organic_acc.txt \
+    --outdir=../tables/organic_best_acc
 
-This will cluster all MS/MS spectra in folder `~/dataset/` on `GPU` and generate the `output.csv` file. The number of CPU cores for preprocessing is `4`. Only `Charge 2` and `Charge 3` are clustered in this configuration. The DBSCAN clustering threshold is `eps=0.2` and post-clustering refinement is `enable`.
+This will produced graphs for the timing and different metrics. 
+2. plot_tradeoff.py - this plots the tradeoff of different bucket widths effect on timing and accuracy results
+    ex:
+        python3 plot_tradeoff.py \
+    --acc-file results/proteomics/accuracy_raw.txt \
+    --time-file results/proteomics/timing_raw.txt \
+    --outdir plots/proteomics \
+    --prefix proteomics_
 
-### Example 2
-
-    python src/main.py ~/dataset/ ./output.csv  --cpu_core_preprocess=4 --cluster_alg hc_complete --cluster_charges 2 3 --eps=0.25 --refine
-
-This will cluster all MS/MS spectra in folder `~/dataset/` using `hierarchical clustering with complete linkage` on `CPU` and generate the `output.csv` file. The number of CPU cores for preprocessing is `4`. Only `Charge 2` and `Charge 3` are clustered in this configuration. The hierarchical clustering threshold is `eps=0.25` and post-clustering refinement is `enable`.
-
-Exported results format
-------------------------------------------------------
-The exported meta data for clustering results are compressed and stored in `parquet` file, which records `bucket`, `precursor_charge`, `precursor_mz`, `identifier`, `scan`, `retention_time`, `cluster`, and `is_representative` information. The format is given as:
-
-|bucket|precursor_charge|precursor_mz|identifier|scan                              |retention_time|cluster   |is_representative|
-|------|----------------|------------|----------|----------------------------------|--------------|----------|-----------------|
-|598   |2               |300.148804  |Adult_Gallbladder_bRP_Elite_53_f07|338                               |165.133194    |664       |True             |
-|5384  |3               |1796.564697 |Fetal_Ovary_bRP_Velos_41_f18|4875                              |2896.885986   |4455302   |False            |
-
-
-How HyperSpec Works
-------------------------------------------------------
-
-<p align="center">
-    <img src="./img/tog.png" width="600">
-</p>
-
-1. _HyperSpec_ first encodes the processed spectra into binary hypervector (HV) with ultra-high dimension (>1000) based on level-id encoding method. The encoding module is implemented and optimized for GPU for shorter runtime.
-2. The entire dataset is divided into small buckets and the pairwise Hamming distance matrix for each bucket is computed. _HyperSpec_ implements very efficient Hamming distance computation kernels on GPU.
-3. _HyperSpec_ finally clusters each spectra bucket using DBSCAN algorithm. Thanks HD computing's lightweight computation and powerful data presentation capability, _HyperSpec_ achieves significant speedup over other spectra clustering tools. Most of spectra datasets can be clustered within a few minutes.
-
-
-Publication
-------------------------------------------------------
-1. Xu, Weihong, Jaeyoung Kang, Wout Bittremieux, Niema Moshiri, and Tajana Rosing. "HyperSpec: Ultrafast Mass Spectra Clustering in Hyperdimensional Space." [Journal of Proteome Research (2023)](https://pubs.acs.org/doi/full/10.1021/acs.jproteome.2c00612).
-2. Sumukh Pinge, Weihong Xu, Jaeyoung Kang, Tianqi Zhang, Niema Moshiri, Wout Bittremieux, and Tajana Rosing. "SpecHD: Hyperdimensional Computing Framework for FPGA-Based Mass Spectrometry Clustering." [Design, Automation & Test in Europe Conference & Exhibition (DATE) 2024](https://ieeexplore.ieee.org/abstract/document/10546776).
-
-
-Contact
-------------------------------------------------------
-
-For more information, post an issue or send an email to <wexu@ucsd.edu>.
