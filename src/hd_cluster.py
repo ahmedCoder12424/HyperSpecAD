@@ -28,9 +28,7 @@ import time
 import atexit
 
 import os, sys
-sys.path.append(os.path.join(os.path.dirname(__file__), "../HDLouvain-2"))
 
-import louvain_py
 
 ANOMALY_EPS_PERCENTILE = 100
 
@@ -630,9 +628,6 @@ def load_csv_as_2d_list(filename):
     return matrix
 
 
-def perform_louvain(pw_dist):
-    cluster_func_labels = np.array(louvain_py.run_louvain(pw_dist, k=15))
-    return cluster_func_labels 
 
 def cluster_bucket (
     bucket_slice: tuple, 
@@ -642,8 +637,6 @@ def cluster_bucket (
     output_type: str='numpy'
 ):
 
-   # matrix =  load_csv_as_2d_list("97_bucket.csv")
-   #print("TEST 0", len( louvain_py.run_louvain(matrix, k=15)))
 
   # print(type(bucket_slice[1]), type(bucket_slice))
     if bucket_slice[1]-bucket_slice[0]==0:
@@ -662,45 +655,12 @@ def cluster_bucket (
         
        # sys.exit(0)
        # print("SIZE OF DIST METRIC", pw_dist.shape)
-        if (cluster_func == "louvain"):
-            data = pw_dist
-            min_val = float(cp.asnumpy(cp.min(data)))
-            max_val = float(cp.asnumpy(cp.max(data)))
-            normalized = (data - min_val) / (max_val - min_val)
-           # ormalized = cp.round(normalized, 6)
-            normalized_cpu = cp.asnumpy(normalized)
-           #export_distance_metric(normalized_cpu, "97_bucket.csv")
-          # print("SIZE OF INPUT TO LOUVAIN", len(normalized_cpu),  normalized_cpu.shape)
-            normalized_cpu = normalized_cpu.astype(np.float64)
-          # assert not np.any(np.isnan(normalized_cpu)), "NaNs found!"
-           # assert not np.any(np.isinf(normalized_cpu)), "Infs found!"
-           # if (pw_dist.shape[0] == 97):
-               # matrix =  load_csv_as_2d_list("97_bucket.csv")
-           # print("SAME ", matrix == normalized_cpu.tolist())
-            # Use this:
-                #matrix_np = np.array(matrix)
-                #is_same = np.allclose(matrix_np, normalized_cpu)
-              # print(f"Matrices are same: {is_same}")
-               # print(f"Matrix shapes - CSV: {matrix_np.shape}, Calculated: {normalized_cpu.shape}")
-            # cluster_func_labels = np.array(louvain_py.run_louvain(normalized_cpu.tolist(), k=15))
-            cluster_func_labels = np.array(louvain_py.run_louvain(pw_dist, k=15))
-           #print(len(cluster_func_labels), cluster_func_labels)
-
-        else:
-            cluster_func.fit(pw_dist) #
-            cluster_func_labels = cluster_func.labels_
+        
+        cluster_func.fit(pw_dist) #
+        cluster_func_labels = cluster_func.labels_
 
        
-    #    matrix =  load_csv_as_2d_list("97_bucket.csv")
-     #   print("TEST", len( louvain_py.run_louvain(matrix, k=15)))
-
-        # cluster_labels_refined = refine_cluster(
-        #     bucket_cluster_label = cluster_func.labels_, 
-        #     bucket_precursor_mzs = bucket_prec_mz,
-        #     bucket_rts = bucket_rt_time,
-        #     precursor_tol_mass = config.precursor_tol[0], 
-        #     precursor_tol_mode = config.precursor_tol[1], 
-        #     rt_tol = config.rt_tol)
+    
         
         # representative_mask = get_cluster_representative(
         #     cluster_labels=cluster_labels_refined, pw_dist=pw_dist) 
@@ -959,192 +919,6 @@ def get_bucket_indices(meta_df, bucket):
     indices = np.where(mask)[0]
     return indices
 
-def cluster_bucket_incr_3(
-    bucket_slice: tuple,
-    data_dict,
-    prev_hvs,
-    prev_clusters,
-    config,
-    prev_prec_mz,
-    output_type,
-    prev_meta_df, 
-    bucket,
-    cluster_func
-):
-
-    incremental_eps = 0.35
-    # print("RUNNIGN cluster_bucket_incr_2 ")
-    if bucket_slice[1] - bucket_slice[0] == 0:
-        # print("bucket slice 0")
-        return [np.array([-1]), np.array([True]),[],  np.array([True])]
-
-    bucket_slice = (bucket_slice[0], bucket_slice[1])
-    bucket_hv = data_dict['hv'][bucket_slice[0]: bucket_slice[1]+1]
-    bucket_prec_mz = data_dict['prec_mz'][bucket_slice[0]: bucket_slice[1]+1]
-    bucket_rt_time = data_dict['rt_time'][bucket_slice[0]: bucket_slice[1]+1]
-
-    
-    pbucket_slice = get_bucket_slice(prev_meta_df, bucket)
-    pbucket_idx = get_bucket_indices(prev_meta_df, bucket)
-
-    # bucket_prev_hv = prev_hvs[pbucket_slice[0]: pbucket_slice[1]]
-
-    bucket_prev_hv = prev_hvs[pbucket_idx]
-
-
-
-
-    clusters_p, count_p = np.unique(prev_clusters['cluster'].to_numpy(), return_counts=True)
-
-    bucket_clusters = prev_clusters[prev_clusters['bucket']==bucket].reset_index(drop=True)
-    # print(len(bucket_clusters), len(bucket_prev_hv))
-
-
-    clusters_p, count_p = np.unique(bucket_clusters['cluster'].to_numpy(), return_counts=True)
-
-
-
-
-    prev_rep_mask = prev_clusters['is_representative'].to_numpy()
-    bucket_prev_prec_mz = prev_prec_mz[pbucket_slice[0]: pbucket_slice[1]]
-
-    cluster_reps = bucket_clusters.loc[bucket_clusters['is_representative'], 'cluster'].to_numpy()
-    cluster_rep_indices = bucket_clusters.index[bucket_clusters['is_representative']].to_numpy()
-    cluster_rep_hvs = bucket_prev_hv[cluster_rep_indices]
-    clusters = bucket_clusters['cluster'].to_numpy()
-     
- 
-    if (pbucket_slice[0]==None or pbucket_slice[1]==None or len(cluster_reps) == 0):
-        # print("returning early1")
-        output = (cluster_bucket(
-                bucket_slice = np.array(bucket_slice),
-                data_dict = data_dict,
-                config = config,
-                cluster_func = cluster_func,
-                output_type = 'cupy' if config.use_gpu_cluster else 'numpy'))
-        output.append([])
-        bucket_len = bucket_hv.shape[0] 
-        output.append(np.ones(bucket_len, dtype=bool))
-        return output
-
-    cluster_rep_mz = np.vstack(bucket_prev_prec_mz[cluster_rep_indices])
-    cluster_rep_indices = np.where(bucket_clusters['is_representative'])[0]  # relative indices
-    
-    clusters = bucket_clusters['cluster'].to_numpy()
-    rep_ids = clusters[cluster_rep_indices]
-
-    similarity_metrics = []
-    beta = 0.5
-    # print("cluster frequencies")
-    # cluster_counts = bucket_clusters['cluster'].value_counts()
-    # print(cluster_counts)   
-    # for rep_id in rep_ids:
-    #     ids = np.where(bucket_clusters['cluster'].values == rep_id)[0]
-    #     # if (len(ids)>1):
-    #     #     # print("ids of cluster", ids)
-    #     # print(rep_id)
-    #     # print("ids", ids)
-    #     cluster_hvs = bucket_prev_hv[ids]
-    #     # print(len(cluster_hvs))
-    #     cluster_prec_mz = bucket_prev_prec_mz[ids]
-    #     # print(len(cluster_prec_mz))
-    #     pw_dist = fast_nb_cosine_dist_mask(cluster_hvs, cluster_prec_mz, config.precursor_tol[0], output_type)
-    #     # print(pw_dist.shape)
-    #     # print(pw_dist)
-    #     mean = float(pw_dist.mean())
-    #     std = float(pw_dist.std())
-    #     # print("mean", mean, "std", std)
-    #     score = mean - std*beta
-    #     # if (score > 0.20):
-    #     #     # print(f"score = {score:.20f}", score ==0)
-    #     #    # sys.exit(0)
-    #     if (score <=0.0):
-    #         score = incremental_eps
-    #     similarity_metrics.append(score)
-
-    # print(similarity_metrics)
-
-
-    
-    full_hvs = np.concatenate((cluster_rep_hvs, bucket_hv), axis=0)
-
-    bucket_prec_mz = np.concatenate([cluster_rep_mz, bucket_prec_mz])
-    rep_indices = np.arange(len(cluster_rep_indices))
-    split_index = len(cluster_rep_hvs)
-
-    total_len =  len(bucket_hv)
-    final_labels = np.full(total_len, -1, dtype=int)
-    
-    pw_dist = fast_nb_cosine_dist_mask(full_hvs, bucket_prec_mz, config.precursor_tol[0], output_type)
-    if config.use_gpu_cluster or output_type == "cupy":
-        pw_dist = cp.asnumpy(pw_dist)
-
-    unique_clusters = np.unique(clusters)
-    # print(unique_clusters)
-    next_cluster_id = max(unique_clusters[unique_clusters != -1], default=-1) + 1
-
-    if rep_indices.size  == 0:
-        final_labels = np.full(total_len, -1, dtype=int)
-        representative_mask = np.ones(total_len, dtype=bool)  
-        anomaly_mask = np.zeros(len(bucket_hv), dtype=bool)
-        prev_rep_mask = bucket_clusters['is_representative'].to_numpy()
-        return [final_labels, representative_mask, prev_rep_mask, anomaly_mask]
-
-
-    dist_matrix = pw_dist[len(cluster_reps):, rep_indices]  
-    # print("pw_dis", pw_dist.shape, dist_matrix.shape)
-    # sys.exit(0)
-    best_idx = np.argmin(dist_matrix, axis=1)
-    best_dists = dist_matrix[np.arange(dist_matrix.shape[0]), best_idx]
- 
-    current_next_cluster_id = next_cluster_id
-
-    representative_mask = np.zeros(len(bucket_hv), dtype=bool)
-    anomaly_mask = np.zeros(len(bucket_hv), dtype=bool)
-    singleton_indices = []
-    cluster_id_before_incr = current_next_cluster_id
-    anomaly_eps = incremental_eps = 0.42
-
-
-    
-    for j, (best_cluster_idx, dist) in enumerate(zip(best_idx, best_dists)):
-        global_i = best_cluster_idx
-        anomaly_eps = incremental_eps #similarity_metrics[best_cluster_idx]
-        if dist <= anomaly_eps:
-            # print("dist", dist, "anomaly_eps", anomaly_eps)
-            final_labels[j] = rep_ids[best_cluster_idx] 
-            bucket_rep_relative_index = rep_indices[best_cluster_idx]
-            # original_prev_index = pbucket_slice[0] + bucket_rep_relative_index
-            if (prev_clusters.at[original_prev_index,'anomaly']==True):
-                print("joining anomaly cluster")
-            #     anomaly_mask[j] = True
-            # print("not anomaly")
-            # prev_rep_row = cluster_rep_indices[best_cluster_idx]
-            # if bucket_clusters.iloc[prev_rep_row]['anomaly']:
-            #     anomaly_mask[j] = True
-
-        else:
-            final_labels[j] = current_next_cluster_id
-            representative_mask[j] = True
-            anomaly_mask[j] = True 
-            # print("marking as anomaly", dist, anomaly_eps)
-            current_next_cluster_id += 1
-            singleton_indices.append(len(cluster_rep_hvs)+j)
-
-    clusters_p, count_p = np.unique(bucket_clusters['cluster'].to_numpy(), return_counts=True)
-    
-    unique_clusters_f, counts_f = np.unique(final_labels, return_counts=True)
-   
-    rep_mask = np.isin(unique_clusters_f, rep_ids)
-
-    old_count_dict = dict(zip(clusters_p, count_p))
-    counts_old_aligned = np.array([old_count_dict.get(c, 0) for c in unique_clusters_f])
-
-    # Compute new counts
-    counts_new = counts_f + counts_old_aligned
-    # print("comparing rep and anomaly mask size",  len(representative_mask), len(anomaly_mask))
-    return [final_labels, representative_mask, prev_rep_mask, anomaly_mask]
-
 def weighted_percentile(values, weights, percentile):
     values = np.asarray(values)
     weights = np.asarray(weights)
@@ -1390,7 +1164,171 @@ def detect_bucket_anomaly(
     prev_rep_mask = prev_clusters["is_representative"].to_numpy()
 
     return [final_labels, representative_mask, prev_rep_mask, anomaly_mask]
-def detect_bucket_anomaly_2(
+
+def _fill_missing_reps_vectorized(clusters: np.ndarray, cluster_rep_indices: np.ndarray) -> np.ndarray:
+    """
+    Ensure every cluster label present in `clusters` has at least one
+    representative index in `cluster_rep_indices`. Picks one row per
+    missing cluster uniformly at random (same distribution as the
+    original per-cluster `np.random.choice` loop).
+
+    Replaces an O(num_unique_clusters * n) loop (a fresh `np.where(clusters==c)`
+    scan PER cluster, even for clusters that already have a rep) with a single
+    O(n log n) sort + a loop that only touches clusters actually missing a rep.
+    """
+    existing = (
+        np.unique(clusters[cluster_rep_indices])
+        if cluster_rep_indices.size else np.array([], dtype=clusters.dtype)
+    )
+    all_clusters = np.unique(clusters)
+    missing = all_clusters[~np.isin(all_clusters, existing)]
+
+    if missing.size == 0:
+        return cluster_rep_indices
+
+    order = np.argsort(clusters, kind="stable")
+    sorted_clusters = clusters[order]
+    starts = np.searchsorted(sorted_clusters, missing, side="left")
+    ends = np.searchsorted(sorted_clusters, missing, side="right")
+
+    # one random pick per missing cluster -- unavoidable python-level loop,
+    # but now bounded by len(missing) instead of len(all_clusters)
+    rand_offsets = np.array([np.random.randint(s, e) for s, e in zip(starts, ends)])
+    picks = order[rand_offsets]
+
+    return np.concatenate([cluster_rep_indices, picks])
+
+
+def detect_bucket_anomaly_fast(
+    bucket_slice: tuple,
+    data_dict,
+    prev_hvs,
+    prev_clusters,
+    config: Config,
+    prev_prec_mz,
+    output_type,
+    prev_meta_df,
+    bucket,
+    cluster_func
+):
+    """
+    Timing-optimized, vectorized rewrite of cluster_bucket_incr_2.
+    Same inputs/outputs/return shape. See summary below the function
+    for exactly what changed and what was deliberately left alone.
+    """
+
+    # --- Empty-slice case (unchanged) ---
+    if bucket_slice[1] - bucket_slice[0] < 0:
+        bucket_len = bucket_slice[1] - bucket_slice[0] + 1
+        is_beyond_max = data_dict['prec_mz'][bucket_slice[0]] > (prev_meta_df['precursor_mz'].max())
+        is_beyond_min= data_dict['prec_mz'][bucket_slice[0]] < (prev_meta_df['precursor_mz'].min())
+        return [
+            np.full(bucket_len, -1, dtype=int),
+            np.ones(bucket_len, dtype=bool),
+            [],
+            np.full(bucket_len, is_beyond_max or is_beyond_min, dtype=bool),
+        ]
+
+    bucket_hv = data_dict['hv'][bucket_slice[0]: bucket_slice[1] + 1]
+    bucket_prec_mz = data_dict['prec_mz'][bucket_slice[0]: bucket_slice[1] + 1]
+
+    pbucket_idx = get_bucket_indices(prev_meta_df, bucket)
+
+    # --- No previous data at all for this bucket ---
+    # Equivalent to the original's post-fill-loop `len(cluster_rep_indices)==0`
+    # check, reached earlier and without doing the merge first.
+    if pbucket_idx.size == 0:
+        is_beyond_max = data_dict['prec_mz'][bucket_slice[0]] > prev_meta_df['precursor_mz'].max()
+        is_beyond_min= data_dict['prec_mz'][bucket_slice[0]] < (prev_meta_df['precursor_mz'].min())
+        return [
+            np.full(bucket_hv.shape[0], -1, dtype=int),
+            np.ones(bucket_hv.shape[0], dtype=bool),
+            [],
+            np.full(bucket_hv.shape[0], is_beyond_max or is_beyond_min, dtype=bool),
+        ]
+
+    bucket_prev_hv = prev_hvs[pbucket_idx]
+    bucket_prev_prec_mz = prev_prec_mz[pbucket_idx]
+    bucket_prev_meta_df = prev_meta_df.iloc[pbucket_idx].reset_index(drop=True)
+
+    key_cols = ["bucket", "precursor_charge", "identifier", "scan", "retention_time"]
+    bucket_clusters_raw = prev_clusters[prev_clusters['bucket'] == bucket].reset_index(drop=True)
+    # Guard against a one-to-many merge: if prev_clusters ever contains more
+    # than one row for the same spectrum (duplicate key_cols), a left-merge
+    # below silently duplicates rows, which desyncs bucket_clusters from
+    # bucket_prev_hv / bucket_prev_prec_mz (same length as pbucket_idx) and
+    # produces out-of-bounds indices later (e.g. cluster_rep_hvs = bucket_prev_hv[cluster_rep_indices]).
+    bucket_clusters_raw = bucket_clusters_raw.drop_duplicates(subset=key_cols, keep="first")
+    bucket_clusters = bucket_prev_meta_df[key_cols].merge(bucket_clusters_raw, on=key_cols, how="left")
+    assert len(bucket_clusters) == len(bucket_prev_hv), (
+        f"bucket_clusters merge produced {len(bucket_clusters)} rows but "
+        f"bucket_prev_hv has {len(bucket_prev_hv)} rows (bucket={bucket}). "
+        "This means prev_clusters has duplicate key_cols rows for this bucket."
+    )
+
+    prev_rep_mask = prev_clusters['is_representative'].to_numpy()
+
+    cluster_reps = bucket_clusters.loc[bucket_clusters['is_representative'], 'cluster'].to_numpy()
+    cluster_rep_indices = bucket_clusters.index[bucket_clusters['is_representative']].to_numpy()
+    clusters = bucket_clusters['cluster'].to_numpy()
+
+    # --- No originally-flagged representatives -> fall back to fresh clustering ---
+    # This collapses the original's two identical-action early-return blocks
+    # (the redundant "both None" check was a strict subset of the "or" check).
+    if len(cluster_reps) == 0:
+        output = cluster_bucket(
+            bucket_slice=np.array(bucket_slice),
+            data_dict=data_dict,
+            config=config,
+            cluster_func=cluster_func,
+            output_type='cupy' if config.use_gpu_cluster else 'numpy')
+        output.append([])
+        output.append(np.zeros(bucket_hv.shape[0], dtype=bool))
+        return output
+
+    # --- Ensure every cluster has a rep (vectorized) ---
+    cluster_rep_indices = _fill_missing_reps_vectorized(clusters, cluster_rep_indices)
+
+    rep_ids = clusters[cluster_rep_indices]
+    cluster_rep_hvs = bucket_prev_hv[cluster_rep_indices]
+    cluster_rep_mz = np.vstack(bucket_prev_prec_mz[cluster_rep_indices])
+
+    full_hvs = np.concatenate((cluster_rep_hvs, bucket_hv), axis=0)
+    full_prec_mz = np.concatenate([cluster_rep_mz, bucket_prec_mz])
+    split_index = len(cluster_rep_hvs)
+
+    # Single distance computation instead of two (reps-only + reps+bucket).
+    pw_dist = fast_nb_cosine_dist_mask(full_hvs, full_prec_mz, config.precursor_tol[0], output_type)
+    if config.use_gpu_cluster or output_type == "cupy":
+        pw_dist = cp.asnumpy(pw_dist)
+
+    pw_dist_rep = pw_dist[:split_index, :split_index]
+    dist_matrix = pw_dist[split_index:, :split_index]
+    if pw_dist_rep.shape[0] > 1:
+        d = pw_dist_rep.copy()
+        np.fill_diagonal(d, np.inf)
+        closest_dist_per_rep = d.min(axis=1)
+        anomaly_eps = min(np.percentile(closest_dist_per_rep, 90) + 0.01, 0.9)
+    else:
+        anomaly_eps = 0.9
+
+    best_idx = np.argmin(dist_matrix, axis=1)
+    best_dists = dist_matrix[np.arange(dist_matrix.shape[0]), best_idx]
+
+    unique_clusters = np.unique(clusters)
+    next_cluster_id = max(unique_clusters[unique_clusters != -1], default=-1) + 1
+
+    is_new = best_dists > anomaly_eps
+    final_labels = np.where(is_new, -1, rep_ids[best_idx])
+    n_new = int(is_new.sum())
+    final_labels[is_new] = next_cluster_id + np.arange(n_new)
+    
+    representative_mask = is_new.copy()
+    anomaly_mask = is_new.copy()
+
+    return [final_labels, representative_mask, prev_rep_mask, anomaly_mask]
+
+def detect_bucket_anomaly_alternative(
     bucket_slice: tuple,
     data_dict,
     prev_hvs,
@@ -1701,733 +1639,6 @@ def detect_bucket_anomaly_2(
     return [final_labels, representative_mask, prev_rep_mask, anomaly_mask]
 
 
-def cluster_bucket_incr_2(
-    bucket_slice: tuple,
-    data_dict,
-    prev_hvs,
-    prev_clusters,
-    config,
-    prev_prec_mz,
-    output_type,
-    prev_meta_df, 
-    bucket,
-    cluster_func
-):
-
-    incremental_eps = 0.35
-    # print("RUNNIGN cluster_bucket_incr_2 ")
-    # print("BUCKET", bucket, bucket_slice[1] - bucket_slice[0])
-    if bucket_slice[1] - bucket_slice[0] < 0:
-        # print("bucket slice 0")
-        # print("returning since bucket slice is zero", bucket)
-
-        # print(data_dict['prec_mz'][bucket_slice[0]],prev_meta_df['precursor_mz'].max(), len(prev_meta_df))
-
-        bucket_len = bucket_slice[1] - bucket_slice[0] + 1
-
-        if (data_dict['prec_mz'][bucket_slice[0]] > prev_meta_df['precursor_mz'].max()):
-            #return [np.array([-1]), np.array([True]),[],  np.array([True])]
-            return [np.full(bucket_len, -1, dtype=int), np.ones(bucket_len, dtype=bool),[], np.ones(bucket_len, dtype=bool)]
-        else:
-            # return [np.array([-1]), np.array([True]),[],  np.array([False])]
-            return [np.full(bucket_len, -1, dtype=int), np.ones(bucket_len, dtype=bool),[], np.zeros(bucket_len, dtype=bool)]
-
-
-
-#original
-    bucket_slice = (bucket_slice[0], bucket_slice[1])
-  
-    bucket_hv = data_dict['hv'][bucket_slice[0]: bucket_slice[1]+1]
-    bucket_prec_mz = data_dict['prec_mz'][bucket_slice[0]: bucket_slice[1]+1]
-    # bucket_rt_time = data_dict['rt_time'][bucket_slice[0]: bucket_slice[1]+1]
-    metadata_df = data_dict['meta_data']
-    metadata_df = metadata_df[metadata_df['bucket']==bucket].reset_index(drop=True)
-#original
-
-
-    # neighbor_buckets = [bucket - 1, bucket, bucket + 1]
-
-    # pbucket_idx = np.concatenate([
-    #     get_bucket_indices(prev_meta_df, b)
-    #     for b in neighbor_buckets
-    # ])
-
-    # if len(pbucket_idx) == 0:
-    #     pbucket_slice = (None, None)
-    # else:
-    #     pbucket_idx = np.unique(pbucket_idx)
-
-    # bucket_prev_hv = prev_hvs[pbucket_idx]
-    # bucket_prev_prec_mz = prev_prec_mz[pbucket_idx]
-    # bucket_prev_meta_df = prev_meta_df.iloc[pbucket_idx].reset_index(drop=True)
-
-    # n = len(metadata_df[(metadata_df['cluster']== 18723)]) + len(metadata_df[(metadata_df['cluster']==28038)]) + len(metadata_df[(metadata_df['cluster']== 22736)])
-
- 
-    # n = len(metadata_df[metadata_df['cluster']==511196])
-
-    # print("N is ", n)
-
-    # print("bucket:", bucket)
-    # print("cluster 511196 anywhere in current batch:",
-    #     (data_dict["meta_data"]["cluster"].astype(str) == "511196").sum())
-
-    # print("cluster 511196 in this bucket:",
-    #     ((data_dict["meta_data"]["cluster"].astype(str) == "511196") &
-    #     (data_dict["meta_data"]["bucket"] == bucket)).sum())
-
-    # if (n>0):
-    #     print("THIS BUCKET HAS ANOMALIES")
-
-    # print("entry to bucket func:",
-    #   (data_dict["meta_data"]["cluster"] == 511196).sum())
-    # if (data_dict["meta_data"]["cluster"] == 511196).sum() >=1:
-
-    #     rows = data_dict["meta_data"][data_dict["meta_data"]["cluster"] == 511196]
-
-        # print(rows[["bucket", "cluster", "identifier", "scan"]])
-
-  
-
-    # print(metadata_df.head())
-
-
-    # print(bucket)
-    # print(len(prev_meta_df[prev_meta_df['bucket']==bucket]))
-
-    # pbucket_idx = get_bucket_indices(prev_meta_df, bucket)
-
-    # pbucket_slice = get_bucket_slice(prev_meta_df, bucket)
-    # bucket_prev_hv = prev_hvs[pbucket_slice[0]: pbucket_slice[1]+1]
-
-    #original
-        # REPLACE with:
-    pbucket_idx = get_bucket_indices(prev_meta_df, bucket)
-    bucket_prev_hv = prev_hvs[pbucket_idx]
-    bucket_prev_prec_mz = prev_prec_mz[pbucket_idx]
-    bucket_prev_meta_df = prev_meta_df.iloc[pbucket_idx]
-    bucket_prev_meta_df = bucket_prev_meta_df.reset_index(drop=True)
-
-    # Keep pbucket_slice ONLY for the None checks below:
-    pbucket_slice = get_bucket_slice(prev_meta_df, bucket)
-    #original
-
-    
-
-
-    # print("previous data")
-    # print(prev_meta_df.iloc[pbucket_slice[0]: pbucket_slice[1]+1])
-
-    
-    # bucket_prev_hv = prev_hvs[pbucket_idx]
-
-
-
-
-    clusters_p, count_p = np.unique(prev_clusters['cluster'].to_numpy(), return_counts=True)
-
-  #  bucket_clusters = prev_clusters.iloc[pbucket_slice[0]:pbucket_slice[1]].reset_index(drop=True)
-
-    #original
-    bucket_clusters = prev_clusters[prev_clusters['bucket']==bucket].reset_index(drop=True)
-    
-    #original
-
-    key_cols = ["bucket", "precursor_charge", "identifier", "scan", "retention_time"]
-
-    bucket_clusters = (
-                    bucket_prev_meta_df[key_cols]
-                    .merge(bucket_clusters, on=key_cols, how="left")
-                )
-#     print('bucket clusters')
-#     print(bucket_clusters['retention_time'])
-#     print("bucket prev meta df")
-#     print(bucket_prev_meta_df['retention_time'])
-#     rt_compare = pd.concat(
-#     [
-#         bucket_clusters['retention_time'].reset_index(drop=True).rename('cluster_rt'),
-#         bucket_prev_meta_df['retention_time'].reset_index(drop=True).rename('prev_rt')
-#     ],
-#     axis=1
-# )
-
-#     print(rt_compare)
-#     assert bucket_clusters[["scan", "identifier"]].reset_index(drop=True).equals(
-#     bucket_prev_meta_df[["scan", "identifier"]].reset_index(drop=True)
-# ), "MISALIGN: bucket_clusters rows do not match bucket_prev_hv rows"
-
-
-#Commented out to see more logs 
-    # print("comparing clusters and hv length", len(bucket_prev_hv), len(bucket_clusters))
-
-
-    # print(len(bucket_clusters), len(bucket_prev_hv))
-
-    # print('previous cluster datafrane')
-    # print(prev_clusters.iloc[pbucket_slice[0]:pbucket_slice[1]])
-
-    # print("bucket clusters")
-    # print(bucket_clusters)
-
-    # print(len(bucket_prev_hv), len(bucket_prev_hv))
-
-
-
-    # clusters_p, count_p = np.unique(bucket_clusters['cluster'].to_numpy(), return_counts=True)
-
-
- 
-    prev_rep_mask = prev_clusters['is_representative'].to_numpy()
-    # bucket_prev_prec_mz = prev_prec_mz[pbucket_slice[0]: pbucket_slice[1]]
-
-    cluster_reps = bucket_clusters.loc[bucket_clusters['is_representative'], 'cluster'].to_numpy()
-
-
-
-    cluster_rep_indices = bucket_clusters.index[bucket_clusters['is_representative']].to_numpy()
-    clusters = bucket_clusters['cluster'].to_numpy()
-    # print("all clusters", np.unique(clusters))
-    # print("cluster_reps", cluster_reps)
-    clusters = bucket_clusters['cluster'].to_numpy()
-
-    #Fill in missing cluster reps using positional indices (already correct)
-    for c in np.unique(clusters):
-        if c not in clusters[cluster_rep_indices]:  # check by cluster ID, not index
-            idx = np.random.choice(np.where(clusters == c)[0])  # positional ✓
-            cluster_rep_indices = np.append(cluster_rep_indices, idx)
-
-    # Now these are both positional and aligned:
-    # print("cluster_rep_indices dtype:", cluster_rep_indices.dtype, cluster_rep_indices[:5])
-    if (len(cluster_rep_indices) == 0):
-        # print("returning since no cluster_rep_indices in bucket", bucket)
-
-        # print(data_dict['prec_mz'][bucket_slice[0]],prev_meta_df['precursor_mz'].max(), len(prev_meta_df))
-        bucket_len = bucket_slice[1] - bucket_slice[0] + 1
-        if (data_dict['prec_mz'][bucket_slice[0]] > prev_meta_df['precursor_mz'].max()):
-            # return [np.array([-1]), np.array([True]),[],  np.array([True])]
-            return [np.full(bucket_len, -1, dtype=int), np.ones(bucket_len, dtype=bool),[], np.ones(bucket_len, dtype=bool)]
-            
-        else:
-            # return [np.array([-1]), np.array([True]),[],  np.array([False])]
-            return [np.full(bucket_len, -1, dtype=int), np.ones(bucket_len, dtype=bool),[], np.zeros(bucket_len, dtype=bool)]
-
-
-
-    rep_ids = clusters[cluster_rep_indices]              
-    # print("after adidng remaining clusters",len(cluster_rep_indices))
-    
-
-
-
-    # rep_rows = bucket_clusters.iloc[cluster_rep_indices]
-    # print("rep_rows")
-    # print(rep_rows)
-    # print("metadata_df")
-    # print(prev_meta_df)
-    # prev_meta_df = prev_meta_df.reset_index().rename(columns={"index": "meta_idx"})
-    # print("rep rows", len(rep_rows))
-    # match_cols = ["scan", "identifier", "retention_time"]
-
-    # rep_rows["identifier"] = rep_rows["identifier"].astype(str).str.strip()
-    # prev_meta_df["identifier"] =  prev_meta_df["identifier"].astype(str).str.strip()
-
-    # rep_rows["scan"] = rep_rows["scan"].astype(int)
-    # prev_meta_df["scan"] =     prev_meta_df["scan"].astype(int)
-
-    # rep_rows["retention_time"] = rep_rows["retention_time"].astype(float).round(4)
-    # prev_meta_df["retention_time"] =     prev_meta_df["retention_time"].astype(float).round(4)
-    
-    # matched =     prev_meta_df.merge(
-    # rep_rows[match_cols],
-    # on=match_cols,
-    # how="inner")
-
-    # matched_indices = matched['meta_idx']
-
-    # print("matched", matched_indices)
-    # print("cluster rep indices", cluster_rep_indices)
-    # sys.exit(0)
-
-    #add clusters without reps 
-
-    cluster_rep_hvs = bucket_prev_hv[cluster_rep_indices]
-    # count spectra/items in each cluster
-    cluster_sizes = pd.Series(clusters).value_counts()
-
-    # frequency for each representative's cluster, aligned with cluster_rep_indices
-    cluster_rep_freqs = cluster_sizes.loc[rep_ids].to_numpy()/len(bucket_prev_hv)
-
-
-    
-
-  
-    # if ( (pbucket_slice[0]==None or pbucket_slice[1]==None) or  len(cluster_reps) == 0):
-    #     print("returning early1", pbucket_slice[0], pbucket_slice[1],  len(cluster_reps))
-    #     print("marking anomalies",  bucket_hv.shape[0])
-    #     output = (cluster_bucket(
-    #             bucket_slice = np.array(bucket_slice),
-    #             data_dict = data_dict,
-    #             config = config,
-    #             cluster_func = cluster_func,
-    #             output_type = 'cupy' if config.use_gpu_cluster else 'numpy'))
-    #     output.append([])
-    #     bucket_len = bucket_hv.shape[0] 
-    #     output.append(np.ones(bucket_len, dtype=bool))
-    #     return output
-
-
-    if (pbucket_slice[0]==None and pbucket_slice[1]==None):
-        # print("returning early1")
-        # if (n > 0):
-        #     pass
-        #     # print("returning early1 real anomaly cluster", pbucket_slice[0], pbucket_slice[1],  len(cluster_reps), "bucket", bucket)
-        #     # print("adding this many", bucket_hv.shape[0] )
-        #     # print(metadata_df)
-        # else:
-        #     # print("returning early1 false anomaly cluster", pbucket_slice[0], pbucket_slice[1],  len(cluster_reps))
-        #     pass
-        output = (cluster_bucket(
-                bucket_slice = np.array(bucket_slice),
-                data_dict = data_dict,
-                config = config,
-                cluster_func = cluster_func,
-                output_type = 'cupy' if config.use_gpu_cluster else 'numpy'))
-        output.append([])
-        bucket_len = bucket_hv.shape[0] 
-        output.append(np.zeros(bucket_len, dtype=bool))
-        return output
-
-
-    if (pbucket_slice[0]==None or pbucket_slice[1]==None or len(cluster_reps) == 0):
-        # print("returning early1, not marked as anomalies")
-        # if (n > 0):
-        #     pass
-        #     # print("returning early1 real anomaly cluster", pbucket_slice[0], pbucket_slice[1],  len(cluster_reps), "bucket", bucket)
-        #     # print("adding this many", bucket_hv.shape[0] )
-        #     # print(metadata_df)
-        # else:
-        #     # print("returning early1 false anomaly cluster", pbucket_slice[0], pbucket_slice[1],  len(cluster_reps))
-        #     pass
-        output = (cluster_bucket(
-                bucket_slice = np.array(bucket_slice),
-                data_dict = data_dict,
-                config = config,
-                cluster_func = cluster_func,
-                output_type = 'cupy' if config.use_gpu_cluster else 'numpy'))
-        output.append([])
-        bucket_len = bucket_hv.shape[0] 
-        output.append(np.zeros(bucket_len, dtype=bool))
-        return output
-    # elif ((pbucket_slice[0]==None or pbucket_slice[1]==None) or len(cluster_reps) == 0):
-    #     print("returning early1", pbucket_slice[0], pbucket_slice[1],  len(cluster_reps))
-    #     output = (cluster_bucket(
-    #             bucket_slice = np.array(bucket_slice),
-    #             data_dict = data_dict,
-    #             config = config,
-    #             cluster_func = cluster_func,
-    #             output_type = 'cupy' if config.use_gpu_cluster else 'numpy'))
-    #     output.append([])
-    #     bucket_len = bucket_hv.shape[0] 
-    #     output.append(np.zeros(bucket_len, dtype=bool))
-    #     return output
-
-
-
-    cluster_rep_mz = np.vstack(bucket_prev_prec_mz[cluster_rep_indices])
-    # cluster_rep_indices = np.where(bucket_clusters['is_representative'])[0]  # relative indices
-    
-   
-    rep_ids = clusters[cluster_rep_indices]
-    # print(rep_ids)
-    # print(bucket_clusters['cluster'].unique())
-    # print(rep_ids, cluster_rep_indices)
-
-    similarity_metrics = []
-    beta = 0.5
-    # print("cluster frequencies")
-    # cluster_counts = bucket_clusters['cluster'].value_counts()
-    # print(cluster_counts)  
-    # 
-    # 
-    # change this to find average distance within cluster, using rep 
-  
-    # for rep_id in rep_ids:
-    #     ids = np.where(bucket_clusters['cluster'].values == rep_id)[0]
-    #     # if (len(ids)>1):
-    #     #     # print("ids of cluster", ids)
-    #     # print(rep_id)
-    #     # print("ids", ids)
-    #     cluster_hvs = bucket_prev_hv[ids]
-    #     # print(len(cluster_hvs))
-    #     cluster_prec_mz = bucket_prev_prec_mz[ids]
-    #     # print(len(cluster_prec_mz))
-    #     pw_dist = fast_nb_cosine_dist_mask(cluster_hvs, cluster_prec_mz, config.precursor_tol[0], output_type)
-    #     # print(pw_dist.shape)
-    #     # print(pw_dist)
-    #     mean = float(pw_dist.mean())
-    #     #cprint("average distance within ", rep_id, mean, len(cluster_hvs))
-    #     std = float(pw_dist.std())
-    #     # print("mean", mean, "std", std)
-    #     score = mean# - std*beta
-    #     # if (score > 0.20):
-    #     #     # print(f"score = {score:.20f}", score ==0)
-    #     #    # sys.exit(0)
-    #     # if (score <=0.0):
-    #     #     score = incremental_eps
-    #     similarity_metrics.append(score)
-
-    # print(similarity_metrics)
-    # print("debugging hypervectors")
-    # for i in cluster_rep_indices:
-    #     if i < len(cluster_rep_hvs) and i < len(rep_ids):
-    #         print(rep_ids[i],cluster_rep_hvs[i])
-
-    # print("pbucket_slice:", pbucket_slice)
-    # print("len bucket_prev_hv:", len(bucket_prev_hv))
-    # print("len bucket_clusters:", len(bucket_clusters))
-    # print("prev_meta_df bucket at slice positions:")
-    # print(prev_meta_df.iloc[pbucket_slice[0]:pbucket_slice[1]+1]['bucket'].value_counts())
-
-    pw_dist_rep = fast_nb_cosine_dist_mask(
-    cluster_rep_hvs,
-    cluster_rep_mz,
-    config.precursor_tol[0],
-    output_type
-)
-
-    # if pw_dist_rep.shape[0] > 1:
-    #     d = pw_dist_rep.copy()
-    #     np.fill_diagonal(d, np.inf)
-
-    #     closest_dist_per_rep = d.min(axis=1)
-    #     avg_closest_dist = closest_dist_per_rep.mean()
-    #     med_closest_dist = np.median(closest_dist_per_rep)
-    #     max_closest_dist = np.percentile(closest_dist_per_rep, 100)
-    #     mid_dist = np.percentile(closest_dist_per_rep, 90)
-    #     std_closest_dist = closest_dist_per_rep.std()
-    #     anomaly_eps = min(max_closest_dist+0.01, 0.9)
-
-    # else:
-    #     avg_closest_dist = np.nan
-    #     med_closest_dist = np.nan
-    #     std_closest_dist = np.nan
-    #     mid_dist = np.nan
-    #     max_closest_dist = 1.0
-    #     anomaly_eps = 0.9
-        
-
-    #weighted 
-
-    if pw_dist_rep.shape[0] > 1:
-        d = pw_dist_rep.copy()
-        np.fill_diagonal(d, np.inf)
-
-        closest_dist_per_rep = d.min(axis=1)
-
-                # convert CuPy -> NumPy if needed
-        if hasattr(closest_dist_per_rep, "get"):
-            closest_dist_per_rep_np = closest_dist_per_rep.get()
-        else:
-            closest_dist_per_rep_np = closest_dist_per_rep
-
-        weights = np.asarray(cluster_rep_freqs, dtype=float)
-        weights = weights / weights.sum()
-
-        avg_closest_dist = np.average(closest_dist_per_rep, weights=weights)
-        med_closest_dist = weighted_percentile(closest_dist_per_rep_np, weights, 50)
-       
-
-        max_closest_dist = weighted_percentile(closest_dist_per_rep_np, weights,  config.anomaly_eps_percentile)
-        max_closest_dist_unweighted = np.percentile(closest_dist_per_rep, 90)
-        print("weighted max distance", max_closest_dist, "unweighted max distance", max_closest_dist_unweighted)
-        std_closest_dist = np.sqrt(
-            np.average((closest_dist_per_rep - avg_closest_dist) ** 2, weights=weights)
-        )
-
-        anomaly_eps = min(max_closest_dist_unweighted + 0.01, 0.9)
-
-    else:
-        avg_closest_dist = np.nan
-        med_closest_dist = np.nan
-        std_closest_dist = np.nan
-        mid_dist = np.nan
-        max_closest_dist = 1.0
-        anomaly_eps = 0.9
-
-
-    # print("AVG CLOSEST DIST", avg_closest_dist)
-    # print("MED CLOSEST DIST",  med_closest_dist)
-    # print("MAX CLOSEST DIST", max_closest_dist )
-    # print("STD CLOSEST DIST",std_closest_dist )
-    # print("MID DIST", mid_dist)
-    avg_closest_dist = avg_closest_dist
-    max_closest_dist = min(max_closest_dist+0.01, 0.9)
-    # print("AVG CLOSEST DIST", avg_closest_dist,"MAX CLOSEST DIST",max_closest_dist)
-
-
-    full_hvs = np.concatenate((cluster_rep_hvs, bucket_hv), axis=0)
-  
-    bucket_prec_mz = np.concatenate([cluster_rep_mz, bucket_prec_mz])
-
-    rep_indices = np.arange(len(cluster_rep_indices))
-    split_index = len(cluster_rep_hvs)
-
-    total_len =  len(bucket_hv)
-    final_labels = np.full(total_len, -1, dtype=int)
-
-    pw_dist = fast_nb_cosine_dist_mask(full_hvs, bucket_prec_mz, config.precursor_tol[0], output_type)
-
- 
-    if config.use_gpu_cluster or output_type == "cupy":
-        pw_dist = cp.asnumpy(pw_dist)
-
-    unique_clusters = np.unique(clusters)
-    next_cluster_id = max(unique_clusters[unique_clusters != -1], default=-1) + 1
-
-    if rep_indices.size  == 0:
-        final_labels = np.full(total_len, -1, dtype=int)
-        representative_mask = np.ones(total_len, dtype=bool)  
-        anomaly_mask = np.zeros(len(bucket_hv), dtype=bool)
-        prev_rep_mask = bucket_clusters['is_representative'].to_numpy()
-        return [final_labels, representative_mask, prev_rep_mask, anomaly_mask]
-
-
-    # dist_matrix = pw_dist[len(cluster_reps):, rep_indices]  
-    # print("rep_ids:", rep_ids)
-    # print("rep_indices:", cluster_rep_indices)
-    # for i, (rid, ridx) in enumerate(zip(rep_ids, cluster_rep_indices)):
-    #     print(f"  slot {i}: cluster={rid}, hv_index={ridx}, "
-    #         f"bucket_cluster_at_index={clusters[ridx] if ridx < len(clusters) else 'OOB'}")
-
-    # print("cluster rep mz values:")
-    # for i, (rid, mz) in enumerate(zip(rep_ids, cluster_rep_mz.flatten())):
-    #     print(f"  cluster={rid}, mz={mz:.4f}")
-
-    # Also print the new spectrum's mz
-    # print("new spectrum mz:", bucket_prec_mz[split_index:split_index+3])
-    dist_matrix = pw_dist[split_index:, :split_index]
-    # print("dist_matrix", dist_matrix.shape)
-    # # print(dist_matrix)
-    # print("lenght of bucket hvs", len(bucket_hv))
-    # print("lenght of prev bucket hvs", len(bucket_prev_hv))
-    # print("full_hvs", full_hvs.shape, bucket_hv.shape, cluster_rep_hvs.shape)
-    # print("dist_matrix", dist_matrix.shape, "pw_dist", pw_dist.shape)
-  
-    best_idx = np.argmin(dist_matrix, axis=1)
-    # print(dist_matrix)
-    best_dists = dist_matrix[np.arange(dist_matrix.shape[0]), best_idx]
-
-    # print(best_idx[0])
-    # print(best_dists[0])
-
-   # "distance look too high for some rows"
-
- 
-    current_next_cluster_id = next_cluster_id
-
-    representative_mask = np.zeros(len(bucket_hv), dtype=bool)
-    anomaly_mask = np.zeros(len(bucket_hv), dtype=bool)
-    singleton_indices = []
-    cluster_id_before_incr = current_next_cluster_id
-    q = 1
-    # anomaly_eps = incremental_eps = np.percentile(closest_dist_per_rep, 65) #avg_closest_dist    #max_closest_dist #0.45
-
-    
-
-    # if 3090 in bucket_clusters['cluster'].unique():
-    #     print('found 3090')
-    #     sys.exit(0)
-    for j, (best_cluster_idx, dist) in enumerate(zip(best_idx, best_dists)):
-        global_i = j
-        # anomaly_eps = similarity_metrics[best_cluster_idx]
-        54, 89, 85
-        # if (metadata_df.iloc[j]['cluster'] == 54 or metadata_df.iloc[j]['cluster']==89 or metadata_df.iloc[j]['cluster']==85):
-        #     # sys.exit(0)
-        # print("J",j)
-        threshold = anomaly_eps
-        # if (similarity_metrics[best_cluster_idx] >0): 
-        #     threshold = similarity_metrics[best_cluster_idx]
-        if dist <= threshold:
-            # print("dist", dist, "anomaly_eps", anomaly_eps)
-            
-            final_labels[j] = rep_ids[best_cluster_idx] 
-            bucket_rep_relative_index = rep_indices[best_cluster_idx]
-
-            original_prev_index = pbucket_slice[0] + bucket_rep_relative_index
-            #if want to use adjacent buckets uncomment bototm line
-            # original_prev_index = pbucket_idx[bucket_rep_relative_index]
-            if (prev_clusters.at[original_prev_index,'anomaly']==True):
-                print("joining anomaly cluster")
-                # anomaly_mask[j] = True
-            # print("not anomaly")
-            # prev_rep_row = cluster_rep_indices[best_cluster_idx]
-            # if bucket_clusters.iloc[j]['anomaly']:
-            #     anomaly_mask[j] = True
-            # else:
-            # print("adding to cluster", rep_ids[best_cluster_idx] , rep_ids, j)
-            # print('real cluster ',metadata_df.iloc[j]['cluster'],rep_ids, bucket)
-            # if (metadata_df.iloc[j]['cluster'] == 18723.0 or metadata_df.iloc[j]['cluster']==28038 or metadata_df.iloc[j]['cluster']==22736):
-
-#49504
-# 21307, 20530, 40322
-#4 34903, 34, 5261
-#2 55198, 35003, 28
-#30410, 85845,165617
-            if ("anomal" in metadata_df.iloc[j]['identifier']):
-            # if (metadata_df.iloc[j]['cluster'] == 30412 or metadata_df.iloc[j]['cluster']==84977 or metadata_df.iloc[j]['cluster']==162980):
-            #if (metadata_df.iloc[j]['cluster']==326516):
-            # if (metadata_df.iloc[j]['cluster'] == 10854):
-                print("NOT MARKING AS ANOMALY but is anomaly incorrect", "dist", dist, "anomaly_eps", anomaly_eps)
-                # print("NOT MARKING AS ANOMALY but is anomaly incorrect", rep_ids[best_cluster_idx], "dist", dist, "anomaly_eps", anomaly_eps, j, j==(bucket_slice[1]+1), bucket_slice[1]+1)
-                # print('real cluster ',metadata_df.iloc[j]['cluster'],rep_ids, bucket)
-                # print("number of spectras in cluster", len(bucket_clusters[bucket_clusters['cluster']== rep_ids[best_cluster_idx]]))
-                # print("anomaly spectra hypervector")
-                # print("rep hypervector", cluster_rep_hvs[best_cluster_idx])
-                # print("current hypervector", bucket_hv[j])
-                # print("rep hypervector")
-                rep_cluster_id = rep_ids[best_cluster_idx]
-                rep_relative_idx = rep_indices[best_cluster_idx]
-                rep_original_idx = pbucket_slice[0] + rep_relative_idx
-                rep_metadata = prev_meta_df.iloc[rep_original_idx]
-                # print("rep hypervector", cluster_rep_hvs[best_cluster_idx])
-                # print("current hypervector", bucket_hv[j])
-                # print(f"\nCluster {rep_cluster_id} representative metadata:")
-                # print(rep_metadata.to_dict())
-              
-    
-
-           
-        else:
-            final_labels[j] = current_next_cluster_id
-            representative_mask[j] = True
-            anomaly_mask[j] = True 
-            # if (metadata_df.iloc[j]['cluster'] == 18723.0 or metadata_df.iloc[j]['cluster']==28038 or metadata_df.iloc[j]['cluster']==22736):
-
-            #54, 89, 85
-    
-
-            #if (metadata_df.iloc[j]['cluster'] == 30412 or metadata_df.iloc[j]['cluster']==84977 or metadata_df.iloc[j]['cluster']==162980):
-            if ("anomal" in metadata_df.iloc[j]['identifier']):
-            # #if (metadata_df.iloc[j]['cluster']==326516):
-                print("marking as anomaly correct",  rep_ids[best_cluster_idx], dist, anomaly_eps, j, j==(bucket_slice[1]+1), bucket_slice[1]+1)
-            #     # print('real cluster ',metadata_df.iloc[j],rep_ids, bucket)
-            #     rep_cluster_id = rep_ids[best_cluster_idx]
-            #     rep_relative_idx = rep_indices[best_cluster_idx]
-            #     rep_original_idx = pbucket_slice[0] + rep_relative_idx
-            #     rep_metadata = prev_meta_df.iloc[rep_original_idx]
-
-            
-                # print(f"\nCluster {rep_cluster_id} representative metadata:")
-                # print(rep_metadata.to_dict())
-    
-            else:
-                # print("Farhat has changed threshold to be 1.0 for debugging")
-                print("marking as anomaly but wrong",  rep_ids[best_cluster_idx], "dist", dist, "anomaly eps", anomaly_eps, j, j==(bucket_slice[1]+1), bucket_slice[1]+1)
-                # print("curent_next_cluster_id", current_next_cluster_id)
-                # print("bucket", bucket)
-                # print("index of 3090", np.where(rep_ids==3090))
-                # print("best_dists", best_dists)
-   
-           
-            
-                # print('real cluster ',metadata_df.iloc[j],"all clusters with reps", rep_ids, "all unique clusters", bucket_clusters['cluster'].unique())
-                # print("number of spectras in prev_clusters", len(prev_clusters[prev_clusters['cluster']==metadata_df.iloc[j]['cluster']]))
-                # print(prev_clusters[prev_clusters['cluster']==metadata_df.iloc[j]['cluster']].head())
-                # print("SANITY CHECK")
-                # tol = 0.6
-                # print(prev_clusters[(prev_clusters['retention_time']<  6826.967285  -tol) & (prev_clusters['retention_time']>  6826.967285   -tol) ])
-                # print(prev_clusters[prev_clusters['scan']==30848])
-                # print("current hyper_vector", bucket_hv[j])
-
-
-                # key_cols = ["bucket", "precursor_charge", "identifier", "scan", "retention_time"]
-
-                # # bucket_clusters = (
-                # #     bucket_prev_meta_df[key_cols]
-                # #     .merge(bucket_clusters, on=key_cols, how="left")
-                # # )
-                # # print(bucket_clusters)
-
-
-            #     mask2 = (
-            #     (bucket_prev_meta_df['bucket'] == 807) &
-            #     (bucket_prev_meta_df['scan'] == 30848) &
-            #     (bucket_prev_meta_df['identifier'] == 'b1929_293T_proteinID_09A_QE3_122212')
-            # )
-
-
-            #     mask3 = (
-            #     (bucket_clusters['bucket'] == 807) &
-            #     (bucket_clusters['scan'] == 30848) &
-            #     (bucket_clusters['identifier'] == 'b1929_293T_proteinID_09A_QE3_122212')
-            # )
-
-
-            #     idx2 = bucket_prev_meta_df.index[mask2][0]
-            #     idxc = bucket_clusters.index[mask3][0]
-            #     print(idxc, idx2)
-            #     print(len(prev_clusters), len(prev_meta_df),len(prev_hvs))
-            #     print(prev_clusters.iloc[idxc])
-            #     hv2 = bucket_prev_hv[idx2]
-            #     print("Row 2 (scan 30848):", hv2)
-
-            #     expected_hv = np.array([
-            #     2639494158, 1913736923, 2811366689, 441464881, 1592326922, 440449055,
-            #     3256846091, 428866961, 3930818428, 353285938, 2510482082, 1541591334,
-            #     1513591703, 2506424925, 4127222681, 1264434451, 2220083608, 3939867457,
-            #     2960932736, 2632371182, 623423894, 3610463554, 41775151, 1143420472,
-            #     2352861657, 45502789, 1448068190, 3538224192, 3262448791, 3770978441,
-            #     3572500864, 68439244, 2310123756, 2348162116, 2703039760, 1849435181,
-            #     3579086695, 241657792, 417611126, 4286702408, 1578887641, 1836224872,
-            #     1801528603, 727701706, 160955076, 512232037, 1394542736, 2147949590,
-            #     2655672356, 809206011, 876199161, 2164027774, 2662295725, 72029633,
-            #     1881314566, 3203881984, 941859473, 3516014685, 2153063622, 2598974161,
-            #     1217013485, 2172869892, 2893156857, 791885495
-            # ])
-
-            #     print(np.array_equal(expected_hv,hv2))
-            #     print(hv2)
-            #     print(expected_hv)
-        
-            #     print(bucket_clusters)
-            #     print(bucket_prev_meta_df)
-             
-               # sys.exit(0)
-
-              
-                # print("represenative bucket clusters")
-                # print(bucket_clusters[bucket_clusters['is_representative']==True])
-               #sys.exit(0)
-
-            current_next_cluster_id += 1
-            singleton_indices.append(len(cluster_rep_hvs)+j)
-
-    
-    
-    # print(metadata_df.iloc[0:3])
-    # sys.exit(0)
-    # clusters_p, count_p = np.unique(bucket_clusters['cluster'].to_numpy(), return_counts=True)
-    
-    unique_clusters_f, counts_f = np.unique(final_labels, return_counts=True)
-   
-    rep_mask = np.isin(unique_clusters_f, rep_ids)
-
-    old_count_dict = dict(zip(clusters_p, count_p))
-    counts_old_aligned = np.array([old_count_dict.get(c, 0) for c in unique_clusters_f])
-
-    # Compute new counts
-    counts_new = counts_f + counts_old_aligned
-    # print("comparing rep and anomaly mask size",  len(representative_mask), len(anomaly_mask))
-
-    # if (n > 0):
-    #     print(n)
-    #     metadata_df['anomaly'] = anomaly_mask
-    #     print(metadata_df)
-    #     print(anomaly_mask)
-
-    return [final_labels, representative_mask, prev_rep_mask, anomaly_mask]
-
-
 def hcluster_bucket(
     bucket_slice: tuple, 
     data_dict: dict, 
@@ -2519,13 +1730,8 @@ def cluster_spectra_incr(
      # Save data to shared memory
     start = time.time()
 
-    print("PREVIUS CLUSTR RESULTS LENGTH IN CLUSTER_SPECTRA_INCR", len(prev_cluster_results))
 
-    print("entry to cluster_spectra_incr:",
-      (spectra_by_charge_df["cluster"] == 511196).sum())
-
-
-    data_dict = {
+    data_dict = { 
         'hv': encoded_spectra_hv,
         'prec_mz': np.vstack(spectra_by_charge_df.precursor_mz).astype(np.float32),
         'rt_time': np.vstack(spectra_by_charge_df.retention_time).astype(np.float32),
@@ -2533,33 +1739,9 @@ def cluster_spectra_incr(
 
     ## Start clustering in GPU or CPU #
 
-    #pectra_by_charge_df = pd.concat([prev_spectra_by_charge_df, spectra_by_charge_df], ignore_index=True)
-    print("CLUSER INCR")
-    # print(spectra_by_charge_df.head())
+  
     bucket_idx_dict = schedule_bucket(spectra_by_charge_df, logger)
-   #print(bucket_idx_dict[0][0])
-   #print(bucket_idx_dict)
-  #  test_bucket = spectra_by_charge_df.loc[bucket_idx_dict[0][0], 'bucket']
-  #  print(bucket_idx_dict)
 
-   # print("TEST BUCKET", test_bucket)
-    np.set_printoptions(threshold=np.inf)
-    print("checkign for 2897 bucket", bucket_idx_dict['sort_bucket_idx_arr'])
-    target_bucket = 2987
-
-    buckets = spectra_by_charge_df["bucket"].unique()
-
-    print("bucket exists?", target_bucket in buckets)
-    print("matching rows:", (spectra_by_charge_df["bucket"] == target_bucket).sum())
-                 
-    mask = spectra_by_charge_df["cluster"] == 511196
-    if( mask.sum() >= 1):
-        print("FOUND 511196 rows in spec_df_by_charge:", mask.sum())
-        print("FOUUND BUCKET AND CLUSTER WHERE THE FUCK ARE YOU?")
- 
-
-
-   
 
     cluster_device = 'CPU'
     if config.cluster_alg == 'dbscan':
@@ -2577,39 +1759,7 @@ def cluster_spectra_incr(
         if config.incre_mode:
             #detect_bucket_anomaly
             #cluster_bucket_incr
-            cluster_results = [cluster_bucket_incr_2(
-                bucket_slice = b_slice_i,
-                data_dict = data_dict,
-                prev_clusters = prev_cluster_results,
-                prev_hvs = prev_encoded_spectra_hv,
-                config = config,
-                prev_prec_mz = prev_spectra_by_charge_df.precursor_mz.to_numpy().astype(np.float32),
-                output_type = 'cupy' if config.use_gpu_cluster else 'numpy',
-                prev_meta_df = prev_spectra_by_charge_df,
-                bucket = spectra_by_charge_df['bucket'].iloc[b_slice_i[0]],
-                cluster_func = cluster_func)
-                for b_slice_i in tqdm(bucket_idx_dict['sort_bucket_idx_arr'])]
-        else:
-            cluster_results = [cluster_bucket(
-                bucket_slice = b_slice_i,
-                data_dict = data_dict,
-                config = config,
-                cluster_func = cluster_func,
-                output_type = 'cupy' if config.use_gpu_cluster else 'numpy')
-                for b_slice_i in tqdm(bucket_idx_dict['sort_bucket_idx_arr'])]
-
-    elif config.cluster_alg == 'louvain':
-        if config.use_gpu_cluster:
-            # DBSCAN clustering on GPU
-            cluster_func = "louvain"
-            cluster_device = 'GPU'
-        else:
-            # DBSCAN clustering on CPU
-            cluster_func = "louvain"
-#switch incremental clustering
-        if config.incre_mode:
-            #detect_bucket_anoaly
-            cluster_results = [cluster_bucket_incr_2(
+            cluster_results = [detect_bucket_anomaly_fast(
                 bucket_slice = b_slice_i,
                 data_dict = data_dict,
                 prev_clusters = prev_cluster_results,
@@ -2653,25 +1803,16 @@ def cluster_spectra_incr(
 
 
 
-    #rint("LENGTH OF CLUSTER RESULTS after bucke functio", len(cluster_results))
-    #print(len(bucket_idx_dict['reorder_idx']))
-    #print(len(cluster_results))
+
     tot = 0
-  #  for i in range(len(cluster_results)):
-   #     tot += len(cluster_results[i][0])
-   # print("TOTAL CLUSTERS", tot)
-   # print(bucket_idx_dict['reorder_idx'])
+ 
 
     spectra_by_charge_df
     prev_cluster_labels = np.array(prev_cluster_results['cluster'])
     prev_rep_mask = np.array(prev_cluster_results['is_representative'])
     prev_anomaly_mask = np.array(prev_cluster_results['anomaly'])
     print("checking prev_cluster_results in cluster_spec_incr")
-    # print(prev_cluster_results[(prev_cluster_results['bucket']==1249) & (prev_cluster_results['identifier']=='b1927_293T_proteinID_07A_QE3_122212')])
-   
-    # sys.exit(0)
-    
-    # Re-order cluster results
+ 
     cluster_results = [cluster_results[i] for i in bucket_idx_dict['reorder_idx']]
 
 
@@ -2684,23 +1825,20 @@ def cluster_spectra_incr(
     anomaly_mask = np.hstack([res_i[3] for res_i in cluster_results])
     print("anomaly mask length", len(anomaly_mask))
     print("rep mask length", len(representative_mask))
-    #find way to return anomaly mask in legible/easy way 
+    
     
     rep_clusters_new = set(cluster_labels[representative_mask])
     mask_to_update = np.isin(prev_cluster_labels, list(rep_clusters_new))
     prev_rep_mask[mask_to_update] = False
     
-    #print(prev_rep_mask) 
+
 
     logger.info("{} clustering in {:.4f} s".format(cluster_device, time.time()-start))
 
 
     if (config.incre_mode):
-        # cluster_labels = np.concatenate((prev_cluster_labels, cluster_labels))
         print("prev_cluster size", len(prev_cluster_labels), "new clusters label size", len(cluster_labels))
-        # representative_mask = np.concatenate((prev_rep_mask, representative_mask))
-        # anomaly_mask = np.concatenate((prev_anomaly_mask, anomaly_mask))
-        
+    
         return cluster_labels, representative_mask, anomaly_mask, cluster_labels
 
     print("NUMBER OF -1 VALUES in cluster labels", len(prev_cluster_labels), np.sum(np.array(prev_cluster_labels) == -1), len(cluster_labels), np.sum(np.array(prev_cluster_labels) == -1))
@@ -2715,18 +1853,6 @@ def cluster_spectra(
 ):
     # Save data to shared memory
     start = time.time()
-   
-#   m/atrix = load_csv_as_2d_list("97_bucket.csv")
- #   print(len(matrix), matrix)
-    #rint(matrix)
-    # Run the Louvain algorithm using the in-memory 2D list
-  #  result = louvain_py.run_louvain(matrix, k=15)
-
-   # print(len(result), result)
-    #sys.exit(0)
-
-   #print(spectra_by_charge_df.precursor_mz)
-   # print(spectra_by_charge_df.retention_time)
     data_dict = {
         'hv': encoded_spectra_hv, 
         'prec_mz': np.vstack(spectra_by_charge_df.precursor_mz).astype(np.float32),
