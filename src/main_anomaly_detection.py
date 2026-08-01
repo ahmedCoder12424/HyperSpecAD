@@ -5,16 +5,13 @@ import numpy as np
 from typing import Union, List
 from config import * 
 
-
 import tqdm
 import pandas as pd
 
 import hd_preprocess, hd_cluster
 
-
-logger = logging.getLogger('HyperSpec')
+logger = logging.getLogger('HyperSpecAD')
 import time
-
 
 def count_true_anomalies(spectra_meta_df, spectra_hvs):
     # excluded_proteins = pd.read_csv("../excluded_spectra-3.csv")
@@ -108,8 +105,6 @@ def recluster(spectra_meta_df, spectra_hvs, cluster_results):
             is_representative=list(cluster_representatives_per_charge))
 
         cluster_df = pd.concat([cluster_df, spec_df_by_charge])
-
-
 
 
     #add anomaly mask from cluster_results 
@@ -240,7 +235,7 @@ def main(args: Union[str, List[str]] = None) -> int:
         cluster_df = pd.DataFrame()
       
      
-    
+        #creating train and test data from the original data for anomaly detection
         spectra_meta_df_init, spectra_hvs_init = include_specified_spectras(spectra_meta_df, spectra_hvs, config.anomaly_path + "/train_data_"+ config.anomaly_file+ ".csv")
     
         spectra_meta_df_incr, spectra_hvs_incr = include_specified_spectras(spectra_meta_df, spectra_hvs, config.anomaly_path + "/test_data_mixed_" + config.anomaly_file+ ".csv")
@@ -250,10 +245,11 @@ def main(args: Union[str, List[str]] = None) -> int:
         spectra_meta_df_init['precursor_charge'] = 1
         spectra_meta_df_incr['precursor_charge'] = 1
 
-
+        #sorting data for speed, can cause script to be killed if not sorted
         spectra_meta_df_init, spectra_hvs_init = sort_data(spectra_meta_df_init, spectra_hvs_init)
         spectra_meta_df_incr, spectra_hvs_incr = sort_data(spectra_meta_df_incr, spectra_hvs_incr)
 
+        #cluster the initial data without anomalies 
         spectra_meta_df = spectra_meta_df_init
         spectra_meta_df["hv_idx"] = np.arange(len(spectra_meta_df))
         spectra_hvs = spectra_hvs_init
@@ -277,13 +273,14 @@ def main(args: Union[str, List[str]] = None) -> int:
             cluster_df = pd.concat([cluster_df, spec_df_by_charge])
       
         
-  
+        #setting anomaly column to false for all initial data, since we know they are not anomalies
         cluster_df['anomaly'] = False
     
         prev_spectra_hvs = spectra_hvs_init
         prev_spectra_meta_df = spectra_meta_df_init
         cluster_results = cluster_df
 
+        #split the test data mixed with anomalies into batches for detection of anomalies to simulate time-series data
         batch_size = 10000
         batches = []
 
@@ -295,11 +292,9 @@ def main(args: Union[str, List[str]] = None) -> int:
             meta_batch = spectra_meta_df_incr.iloc[i:end]
             batches.append((meta_batch, hvs_batch))
 
-
-        anomaly_df = pd.DataFrame()
-   
-        b = 0
         print("ANOMALY DETECION OF MIXED ANOMALY/NON_ANOMALY SAMPLES")
+        anomaly_df = pd.DataFrame()
+        batch_count = 0
         total_start_anomaly_detection = time.perf_counter()
         for batch in batches:
             
@@ -310,10 +305,8 @@ def main(args: Union[str, List[str]] = None) -> int:
             spectra_meta_df, spectra_hvs = sort_data(spectra_meta_df, spectra_hvs)
 
             prev_spectra_meta_df, prev_spectra_hvs = sort_data(prev_spectra_meta_df, prev_spectra_hvs)
-            # cluster_results_results, place = sort_data(cluster_results,None)
 
-            b+=1
-            j = 0
+            batch_count+=1
             batch_cluster_df = pd.DataFrame()
             batch_anomaly_df = pd.DataFrame()
             
@@ -340,9 +333,6 @@ def main(args: Union[str, List[str]] = None) -> int:
                     prev_encoded_spectra_hv=prev_spectra_hvs[prev_idx], prev_cluster_results=prev_cluster_results,
                     config=config, logger=logger)
               
-               
-                j+=1
-             
                 spec_df_by_charge = spec_df_by_charge.assign(
                     cluster=list(cluster_labels_per_charge),
                     is_representative=list(cluster_representatives_per_charge),
@@ -365,10 +355,10 @@ def main(args: Union[str, List[str]] = None) -> int:
             prev_spectra_meta_df = pd.concat([prev_spectra_meta_df, spectra_meta_df], ignore_index=True)
             prev_spectra_hvs =  np.vstack([prev_spectra_hvs, spectra_hvs]) 
            
-
     hd_preprocess.export_cluster_results(
         spectra_df=cluster_results, config=config, logger=logger)
     
+    #export cluster and anomaly results to csv
     cluster_results.to_csv("cluster_result/cluster_results_"+config.anomaly_file+".csv", index=False)    
     if (anomaly_df is not None):
         num_unique_clusters = anomaly_df["cluster"].nunique()
@@ -386,11 +376,9 @@ def main(args: Union[str, List[str]] = None) -> int:
     print(f"[TIME] total anomaly detection phase runtime: {anomaly_detection_total_runtime:.3f} seconds")
     print(f"[TIME] anomaly detection samples per second: {samples_per_second:.3f}")
 
-    with open("anomaly_validation_results/split_analysis_timing_2.csv", "a") as f:
+    #export timing results to csv 
+    with open("anomaly_validation_results/timing_results_"+config.anomaly_file+".csv", "a") as f:
         f.write(f"{config.anomaly_file},{total_runtime:.3f},{anomaly_detection_total_runtime:.3f},{samples_per_second:.3f}\n")
-
-  
-                
 
 if __name__ == "__main__":
     main()
