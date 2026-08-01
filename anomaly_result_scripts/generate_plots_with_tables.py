@@ -1,3 +1,10 @@
+
+"""
+generate_plots_with_tables.py
+===============
+This scripts generates plots and a summary table for the different baselines and hyper-spec results. It creates graphs comparing
+timing, True Positive percentage, False Postive Percentage, Detection Rate, F1 Score, Recall, Precision.
+"""
 import re
 import os
 import argparse
@@ -15,7 +22,6 @@ COLORS = {
     "OC-PCA": "tab:purple",
     "GODS": "tab:brown",
 }
-
 
 HYPER_COLUMNS = [
     "param",
@@ -115,6 +121,7 @@ def parse_baselines(text):
         total = current_gt
         tp_pct = (tp / total * 100) if total and not np.isnan(tp) else np.nan
         fp_pct = (fp / total * 100) if total and not np.isnan(fp) else np.nan
+        f1_pct = f1 * 100 if not np.isnan(f1) else np.nan
 
         results[method].append({
             "contamination": current_contam,
@@ -123,7 +130,7 @@ def parse_baselines(text):
             "precision": precision,
             "recall": recall,
             "detection_rate": recall,
-            "f1": f1,
+            "f1": f1_pct,
             "fpr": fpr,
             "auroc": auroc,
             "auprc": auprc,
@@ -187,16 +194,39 @@ def parse_timing(text):
     times = []
 
     for line in text.splitlines():
-        line = line.strip()
+        # Strip whitespace and any trailing line-continuation backslash
+        line = line.strip().rstrip("\\").strip()
         if not line:
             continue
 
-        m = re.match(r"s?([\d.]+)\s*,\s*([\d.]+)", line)
-        if m:
-            thresholds.append(float(m.group(1)))
-            times.append(float(m.group(2)))
+        parts = [p.strip() for p in line.split(",")]
+        if len(parts) < 2:
+            continue
 
-    return np.array(thresholds), np.array(times)
+        thresh_str = parts[0]
+        if thresh_str.lower().startswith("s"):
+            thresh_str = thresh_str[1:]
+
+        threshold = to_float(thresh_str)
+        # New file structure has multiple timing columns per row
+        # (e.g. "threshold,time1,time2,time3"); only use the first one.
+        time = to_float(parts[1])
+
+        if np.isnan(threshold) or np.isnan(time):
+            continue
+
+        thresholds.append(threshold)
+        times.append(time)
+
+    thresholds = np.array(thresholds)
+    times = np.array(times)
+
+    if len(thresholds) > 0:
+        order = np.argsort(thresholds)
+        thresholds = thresholds[order]
+        times = times[order]
+
+    return thresholds, times
 
 
 def parse_accuracy(text):
@@ -244,7 +274,7 @@ def parse_accuracy(text):
         result["threshold"] = np.array([])
 
     # Scale Hyper-Spec fraction metrics to percentages
-    for col in ["tp_pct", "fp_pct", "detection_rate", "precision", "recall"]:
+    for col in ["tp_pct", "fp_pct", "detection_rate", "precision", "recall", "f1"]:
         if col in result:
             valid = result[col][~np.isnan(result[col])]
             if len(valid) > 0 and np.nanmax(valid) <= 1.5:
@@ -336,7 +366,7 @@ def plot_metric(
         print(f"Skipped {outfile}: no valid data.")
         return
 
-    ax.set_xlabel("Threshold / contamination level")
+    ax.set_xlabel("Anomaly Contamination level")
     ax.set_ylabel(ylabel)
     ax.set_title(title)
     ax.grid(True, alpha=0.3)
@@ -394,8 +424,8 @@ def plot_timing(baselines, hyper_thresh, hyper_time, outdir):
         plt.close(fig)
         print("Skipped timing_comparison.png: no valid timing data.")
         return
-
-    ax.set_xlabel("Threshold / contamination level")
+    ax.set_yscale('log')
+    ax.set_xlabel("Anomaly Contamination level")
     ax.set_ylabel("Time (s)")
     ax.set_title("Timing Comparison: Hyper-Spec vs Baselines")
     ax.grid(True, alpha=0.3)
@@ -404,6 +434,164 @@ def plot_timing(baselines, hyper_thresh, hyper_time, outdir):
 
     path = os.path.join(outdir, "timing_comparison.png")
     fig.savefig(path, dpi=150)
+    plt.close(fig)
+    print(f"Saved {path}")
+
+
+TABLE_METRIC_KEYS = ["precision", "recall", "f1"]
+
+TABLE_COL_LABELS = [
+    "Method",
+    "Precision (%)",
+    "Recall (%)",
+    "F1 (%)",
+    "Time (s)",
+]
+
+# Whether a higher value is "better" for each metric column (used for bolding
+# the best entry per column). Time and FP% are lower-is-better.
+LOWER_IS_BETTER = {"fp_pct", "time"}
+
+# Methods excluded from the summary table specifically (still used elsewhere,
+# e.g. the per-metric line plots).
+TABLE_EXCLUDE_METHODS = {"GODS"}
+
+
+def _nanmean(values):
+    values = np.asarray(values, dtype=float)
+    values = values[~np.isnan(values)]
+    return float(np.mean(values)) if len(values) else np.nan
+
+
+def summarize_baseline_records(records, keys):
+    """Average each metric in `keys` across all rows for one baseline method."""
+    return {k: _nanmean([r.get(k, np.nan) for r in records]) for k in keys}
+
+
+def summarize_hyper_acc(hyper_acc, hyper_time, keys):
+    """Average each metric in `keys` across all Hyper-Spec threshold rows."""
+    out = {}
+    for k in keys:
+        out[k] = _nanmean(hyper_acc[k]) if k in hyper_acc else np.nan
+    out["time"] = _nanmean(hyper_time)
+    return out
+
+
+def format_cell(value, key):
+    if value is None or (isinstance(value, float) and np.isnan(value)):
+        return "—"
+    if key in ("tp_pct", "fp_pct", "precision", "recall", "f1"):
+        return f"{value:.1f}"
+    if key == "time":
+        return f"{value:.1f}"
+    return f"{value:.3f}"
+
+
+def build_summary_rows(baselines, hyper_acc, hyper_time):
+    """Returns list of (method_name, {metric_key: value}) tuples, Hyper-Spec first."""
+    keys = TABLE_METRIC_KEYS
+    rows = [("Hyper-Spec", summarize_hyper_acc(hyper_acc, hyper_time, keys))]
+
+    for method in METHODS:
+        if method in TABLE_EXCLUDE_METHODS:
+            continue
+        if not baselines.get(method):
+            continue
+        rows.append((method, summarize_baseline_records(baselines[method], keys + ["time"])))
+
+    return rows
+
+
+def plot_summary_table(baselines, hyper_acc, hyper_time, outdir, outfile="summary_table.png"):
+    rows = build_summary_rows(baselines, hyper_acc, hyper_time)
+
+    if len(rows) <= 1:
+        print(f"Skipped {outfile}: no baseline data to compare.")
+        return
+
+    all_keys = TABLE_METRIC_KEYS + ["time"]
+
+    # Determine best value per column for bolding/highlighting.
+    best_per_col = {}
+    for key in all_keys:
+        vals = [r[1].get(key, np.nan) for r in rows]
+        vals = [v for v in vals if not np.isnan(v)]
+        if not vals:
+            best_per_col[key] = None
+            continue
+        best_per_col[key] = min(vals) if key in LOWER_IS_BETTER else max(vals)
+
+    table_data = []
+    for name, metrics in rows:
+        row_cells = [name] + [format_cell(metrics.get(k, np.nan), k) for k in all_keys]
+        table_data.append(row_cells)
+
+    n_rows = len(table_data)
+    fig_height = 0.55 * (n_rows + 1) + 0.35
+    fig, ax = plt.subplots(figsize=(11, fig_height))
+    fig.patch.set_alpha(0)
+    ax.patch.set_alpha(0)
+    ax.axis("off")
+  
+
+    table = ax.table(
+        cellText=table_data,
+        colLabels=TABLE_COL_LABELS,
+        cellLoc="center",
+        loc="center",
+        bbox=[0, 0, 1, 1],
+    )
+    table.auto_set_font_size(False)
+    table.set_fontsize(14)
+    table.auto_set_column_width(col=list(range(len(TABLE_COL_LABELS))))
+
+    for cell in table.get_celld().values():
+        cell.PAD = 0.05
+
+    header_color = "#2c3e50"
+    hyper_row_color = "#aed4f5"
+    hyper_border_color = "#1f6fb2"
+    alt_row_color = "#f4f4f4"
+
+    n_cols = len(TABLE_COL_LABELS)
+
+    for col in range(n_cols):
+        cell = table[(0, col)]
+        cell.set_facecolor(header_color)
+        cell.get_text().set_color("white")
+        cell.get_text().set_fontweight("bold")
+
+    for row_idx, (name, metrics) in enumerate(rows, start=1):
+        is_hyper = name == "Hyper-Spec"
+        row_color = hyper_row_color if is_hyper else (
+            alt_row_color if row_idx % 2 == 0 else "white"
+        )
+
+        for col in range(n_cols):
+            cell = table[(row_idx, col)]
+            cell.set_facecolor(row_color)
+
+            if is_hyper:
+                cell.set_edgecolor(hyper_border_color)
+                cell.set_linewidth(2.2)
+                cell.get_text().set_fontweight("bold")
+                cell.get_text().set_fontsize(15)
+
+            if col == 0:
+                cell.get_text().set_fontweight("bold")
+                continue
+
+            key = all_keys[col - 1]
+            value = metrics.get(key, np.nan)
+            best = best_per_col.get(key)
+
+            if best is not None and not np.isnan(value) and np.isclose(value, best):
+                cell.get_text().set_fontweight("bold")
+                cell.get_text().set_color("#1a7a1a")
+
+    fig.tight_layout(pad=0.2)
+    path = os.path.join(outdir, outfile)
+    fig.savefig(path, dpi=200, bbox_inches="tight", pad_inches=0.03, transparent=True)
     plt.close(fig)
     print(f"Saved {path}")
 
@@ -439,7 +627,7 @@ def main():
         ("precision", "Precision (%)", "Precision: Hyper-Spec vs Baselines", "precision_pct.png"),
         ("recall", "Recall (%)", "Recall: Hyper-Spec vs Baselines", "recall_pct.png"),
         ("detection_rate", "Detection rate (%)", "Detection Rate: Hyper-Spec vs Baselines", "detection_rate_pct.png"),
-        ("f1", "F1 Score", "F1 Score: Hyper-Spec vs Baselines", "f1_score.png"),
+        ("f1", "F1 Score (%)", "F1 Score: Hyper-Spec vs Baselines", "f1_score.png"),
         ("tp_pct", "True positive (%)", "True Positive Percentage: Hyper-Spec vs Baselines", "true_positive_pct.png"),
         ("fp_pct", "False positive (%)", "False Positive Percentage: Hyper-Spec vs Baselines", "false_positive_pct.png"),
         ("auroc", "AUROC", "AUROC: Hyper-Spec vs Baselines", "auroc.png"),
@@ -457,6 +645,8 @@ def main():
             outdir=args.outdir,
             include_hyper=True,
         )
+
+    plot_summary_table(baselines, hyper_acc, hyper_time, args.outdir)
 
     print(f"\nDone. Plots saved to: {args.outdir}")
 

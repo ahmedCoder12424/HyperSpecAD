@@ -3,16 +3,11 @@ ks=(0.01 0.05 0.1 0.2 0.4 0.6 0.8 1)
 # --- Run configs ---
 
 
-
 INPUT_DIR_run1="/hdd/data/fahmed/battery_mgf_files/Gr_HC_Si_trunc"
 ANOMALY_DIR_run1="/hdd/data/fahmed/battery_mgf_files/anomalies_inorganic"
 ANOMALY_SPECTRA_DIR_run1="/hdd/data/fahmed/anomaly_var_size_files_trunc"
 RUN_TAG_run1="inorganic_anomalies"
 
-# INPUT_DIR_run1="/hdd/data/fahmed/battery_mgf_files/Gr_HC_Si_trunc"
-# ANOMALY_DIR_run1="/hdd/data/fahmed/battery_mgf_files/anomalies_inorganic_Gr_HC_Si_trunc_correct_percent"
-# ANOMALY_SPECTRA_DIR_run1="/hdd/data/fahmed/anomaly_var_size_files_Gr_HC_Si_inorganic_correct_pc"
-# RUN_TAG_run1="inorganic_anomalies"
 
 INPUT_DIR_run2="/hdd/data/fahmed/battery_mgf_files/Gr_HC_Si_trunc"
 ANOMALY_DIR_run2="/hdd/data/fahmed/battery_mgf_files/anomalies_proteomics_Gr_HC_Si_trunc"
@@ -27,16 +22,6 @@ RUN_TAG_run3="inorganic_anomalies correct percentages"
 
 ACCURACY_RESULT_FILE="anomaly_validation_results/accuracy_results_Gr_HC_Si_all_correct_pc.txt"
 TIMING_RESULT_FILE="anomaly_validation_results/timing_best_timing_Gr_HC_Si_all_correct_pc.csv"
-# INPUT_DIR_run2="/hdd/data/fahmed/battery_mgf_files/Pre_30_Ref_DE_250_2040_5shots_1frame_FIBlong_FIBpolish_1_mgf_split"
-# ANOMALY_DIR_run2="/hdd/data/fahmed/battery_mgf_files/anomalies_inorganic_Pre_30_Ref_DE_split_mgf"
-# ANOMALY_SPECTRA_DIR_run2="anomaly_var_size_files_Pre_30_Ref"
-# RUN_TAG_run2="Pre_30_Ref_DE_"
-
-# INPUT_DIR_run3="/hdd/data/fahmed/battery_mgf_files/Gr_HC_Si_one layer_negative_DE_2048pixels_rotated_after FIB_2_mgf_split"
-# ANOMALY_DIR_run3="/hdd/data/fahmed/battery_mgf_files/anomalies_inorganic_Gr_HC_Si_split_mgf_clean"
-# ANOMALY_SPECTRA_DIR_run3="anomaly_var_size_files_Gr_HC_Si"
-# RUN_TAG_run3="Gr_HC_Si"
-# -----------------------
 
 for run in run1 run2 run3; do
 
@@ -55,7 +40,7 @@ for run in run1 run2 run3; do
     echo "=== Run: ${RUN_TAG} ==="
     for k in "${ks[@]}"; do
         echo "  k=${k}"
-        python src/main2.py \
+        python src/main_anomaly_detection.py \
             --input_paths \
             "${INPUT_DIR}" \
             ${ANOMALY_DIR}/anomalies_n*_pct${k}*.mgf \

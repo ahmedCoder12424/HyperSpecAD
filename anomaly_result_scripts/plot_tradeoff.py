@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""
+"""plot_tradeoff.py 
+This scripts plots a tradeoff graph between mz_interval and recall accuracy 
 Bucket width (mz_interval) tradeoff plots:
   - Accuracy vs bucket width
   - Timing vs bucket width
@@ -11,7 +12,7 @@ Reads:
   timing_raw.txt    -> blocks of "mz_interval=X, k=..." followed by rows:
                        sCONTAMINATION,seconds
 
-Outputs (PNG, saved next to this script):
+Outputs (PNG, saved to --outdir):
   accuracy_vs_bucket_width.png
   timing_vs_bucket_width.png
   combined_tradeoff.png
@@ -19,13 +20,12 @@ Outputs (PNG, saved next to this script):
 
 import re
 import os
+import argparse
 from collections import defaultdict
 
 import matplotlib.pyplot as plt
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-ACC_FILE = os.path.join(HERE, "accuracy_raw.txt")
-TIME_FILE = os.path.join(HERE, "timing_raw.txt")
 
 HEADER_RE = re.compile(r"mz_interval\s*=\s*([0-9.]+)")
 
@@ -160,18 +160,52 @@ def plot_combined(acc_data, time_data, outpath):
     plt.close(fig)
 
 
-def main():
-    acc_data = parse_accuracy(ACC_FILE)
-    time_data = parse_timing(TIME_FILE)
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Plot accuracy/timing tradeoffs vs. mz_interval bucket width."
+    )
+    parser.add_argument(
+        "--acc-file",
+        default=os.path.join(HERE, "accuracy_raw.txt"),
+        help="Path to accuracy_raw.txt (default: %(default)s)",
+    )
+    parser.add_argument(
+        "--time-file",
+        default=os.path.join(HERE, "timing_raw.txt"),
+        help="Path to timing_raw.txt (default: %(default)s)",
+    )
+    parser.add_argument(
+        "--outdir",
+        default=HERE,
+        help="Directory to save output PNGs (default: script directory)",
+    )
+    parser.add_argument(
+        "--prefix",
+        default="",
+        help="Optional filename prefix for output PNGs, e.g. 'proteomics_' (default: none)",
+    )
+    return parser.parse_args()
 
-    plot_accuracy(acc_data, os.path.join(HERE, "accuracy_vs_bucket_width.png"))
-    plot_timing(time_data, os.path.join(HERE, "timing_vs_bucket_width.png"))
-    plot_combined(acc_data, time_data, os.path.join(HERE, "combined_tradeoff.png"))
+
+def main():
+    args = parse_args()
+    os.makedirs(args.outdir, exist_ok=True)
+
+    acc_data = parse_accuracy(args.acc_file)
+    time_data = parse_timing(args.time_file)
+
+    acc_out = os.path.join(args.outdir, f"{args.prefix}accuracy_vs_bucket_width.png")
+    time_out = os.path.join(args.outdir, f"{args.prefix}timing_vs_bucket_width.png")
+    combined_out = os.path.join(args.outdir, f"{args.prefix}combined_tradeoff.png")
+
+    plot_accuracy(acc_data, acc_out)
+    plot_timing(time_data, time_out)
+    plot_combined(acc_data, time_data, combined_out)
 
     print("Saved:")
-    print(" -", os.path.join(HERE, "accuracy_vs_bucket_width.png"))
-    print(" -", os.path.join(HERE, "timing_vs_bucket_width.png"))
-    print(" -", os.path.join(HERE, "combined_tradeoff.png"))
+    print(" -", acc_out)
+    print(" -", time_out)
+    print(" -", combined_out)
 
 
 if __name__ == "__main__":
